@@ -297,11 +297,11 @@ class Message {
                                  "message" => $client->getDefaultEvents("message"),
                                  "flag"    => $client->getDefaultEvents("flag"),
                              ]);
+        $instance->setClient($client);
         $instance->setFolderPath($client->getFolderPath());
         $instance->setSequence($sequence);
         $instance->setFetchOption($fetch_options);
 
-        $instance->setClient($client);
         $instance->setSequenceId($uid, $msglist);
 
         $instance->parseRawHeader($raw_header);
@@ -1466,11 +1466,21 @@ class Message {
 
     /**
      * Set the message path aka folder path
-     * @param $folder_path
+     * @param ?string $folder_path
      *
      * @return Message
      */
-    public function setFolderPath($folder_path): Message {
+    public function setFolderPath(?string $folder_path): Message {
+        if ($folder_path === null || $folder_path === '') {
+            $folder_path = $this->client?->getFolderPath();
+        }
+        if ($folder_path === null || $folder_path === '') {
+            $folder_path = (string)$this->config->get('options.common_folders.inbox', 'INBOX');
+        }
+        if ($folder_path === '') {
+            $folder_path = 'INBOX';
+        }
+    
         $this->folder_path = $folder_path;
 
         return $this;
