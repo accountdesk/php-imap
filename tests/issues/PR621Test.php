@@ -9,6 +9,9 @@ use Webklex\PHPIMAP\Config;
 use Webklex\PHPIMAP\Message;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 
+/**
+ * @see https://github.com/Webklex/php-imap/pull/621
+ */
 class PR619Test extends TestCase
 {
     private function makeClientWithNullActiveFolder(): Client
