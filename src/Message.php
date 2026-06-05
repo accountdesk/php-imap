@@ -130,10 +130,8 @@ class Message {
 
     /**
      * The message folder path
-     *
-     * @var string $folder_path
      */
-    protected string $folder_path;
+    protected ?string $folder_path;
 
     /**
      * Fetch body options
