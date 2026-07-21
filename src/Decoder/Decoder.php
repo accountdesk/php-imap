@@ -89,6 +89,23 @@ abstract class Decoder implements DecoderInterface {
             $result = \imap_mime_header_decode($text);
             return is_array($result) ? $result : [];
         }
+        // Without ext-imap (unbundled since PHP 8.4) mime encoded-words
+        // (e.g. "=?ISO-8859-2?Q?...?=") previously passed through undecoded -
+        // the old fallback only guessed the charset of the still-encoded string.
+        // Decode them via iconv/mbstring and return the result as UTF-8.
+        if (preg_match('/=\?[^?]+\?[bq]\?/i', $text)) {
+            if (function_exists('iconv_mime_decode')) {
+                $decoded = @iconv_mime_decode($text, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, "UTF-8");
+            } else {
+                $decoded = mb_decode_mimeheader($text);
+            }
+            if ($decoded !== false && $decoded !== "") {
+                return [(object)[
+                    "charset" => "UTF-8",
+                    "text"    => $decoded
+                ]];
+            }
+        }
         $charset = $this->getEncoding($text);
         return [(object)[
             "charset" => $charset,
