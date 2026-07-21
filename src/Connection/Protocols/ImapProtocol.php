@@ -275,12 +275,12 @@ class ImapProtocol extends Protocol {
                 $line = substr($line, $pos + 1);
                 continue;
             }
-            while ($token[0] == '(') {
+            while ($token !== '' && $token[0] == '(') {
                 $stack[] = $tokens;
                 $tokens = [];
                 $token = substr($token, 1);
             }
-            if ($token[0] == '"') {
+            if ($token !== '' && $token[0] == '"') {
                 // A quoted string ends at a space, at the end of the line or at a closing
                 // parenthesis: (UID 1 INTERNALDATE "22-Oct-2026 10:00:00 +0000").
                 // A backslash escapes the next character, so \" never ends the string.
@@ -297,7 +297,7 @@ class ImapProtocol extends Protocol {
                     continue;
                 }
             }
-            if ($token[0] == '{') {
+            if ($token !== '' && $token[0] == '{') {
                 $endPos = strpos($token, '}');
                 $chars = substr($token, 1, $endPos - 1);
                 if (is_numeric($chars)) {
@@ -317,7 +317,7 @@ class ImapProtocol extends Protocol {
                     continue;
                 }
             }
-            if ($stack && $token[strlen($token) - 1] == ')') {
+            if ($stack && $token !== '' && $token[strlen($token) - 1] == ')') {
                 // closing braces are not separated by spaces, so we need to count them
                 $braces = strlen($token);
                 $token = rtrim($token, ')');
