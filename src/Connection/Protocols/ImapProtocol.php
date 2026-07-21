@@ -269,19 +269,19 @@ class ImapProtocol extends Protocol {
                 $line = substr($line, $pos + 1);
                 continue;
             }
-            while ($token[0] == '(') {
+            while ($token !== '' && $token[0] == '(') {
                 $stack[] = $tokens;
                 $tokens = [];
                 $token = substr($token, 1);
             }
-            if ($token[0] == '"') {
+            if ($token !== '' && $token[0] == '"') {
                 if (preg_match('%^\(*\"((.|\\\|\")*?)\"( |$)%', $line, $matches)) {
                     $tokens[] = $matches[1];
                     $line = substr($line, strlen($matches[0]));
                     continue;
                 }
             }
-            if ($token[0] == '{') {
+            if ($token !== '' && $token[0] == '{') {
                 $endPos = strpos($token, '}');
                 $chars = substr($token, 1, $endPos - 1);
                 if (is_numeric($chars)) {
@@ -301,7 +301,7 @@ class ImapProtocol extends Protocol {
                     continue;
                 }
             }
-            if ($stack && $token[strlen($token) - 1] == ')') {
+            if ($stack && $token !== '' && $token[strlen($token) - 1] == ')') {
                 // closing braces are not separated by spaces, so we need to count them
                 $braces = strlen($token);
                 $token = rtrim($token, ')');
