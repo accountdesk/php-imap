@@ -422,7 +422,15 @@ class Folder {
     /**
      * Idle the current connection
      * @param callable $callback function(Message $message) gets called if a new message is received
-     * @param integer $timeout max 1740 seconds - recommended by rfc2177 §3. Should not be lower than the servers "* OK Still here" message interval
+     * @param integer $timeout max 1740 seconds - recommended by rfc2177 §3. Should not be lower than the servers "* OK Still here" message interval.
+     *                         Acts as the stream read timeout: after every $timeout seconds of silence the IDLE
+     *                         command gets re-issued as a keep-alive (rfc2177 §3 recommends re-issuing at least
+     *                         every 29 minutes; many servers and NAT gateways drop idle connections much earlier).
+     * @param integer $max_runtime maximum runtime in seconds, 0 = run forever. When the limit is reached, idle()
+     *                             terminates the IDLE session gracefully (DONE) and returns runtime statistics.
+     *                             Useful for cron/worker setups that want bounded runs instead of an endless loop.
+     *
+     * @return array{messages: int, keepalives: int, reconnects: int, runtime: int}
      *
      * @throws ConnectionFailedException
      * @throws RuntimeException
@@ -432,7 +440,7 @@ class Folder {
      * @throws ImapServerErrorException
      * @throws ResponseException
      */
-    public function idle(callable $callback, int $timeout = 300): void {
+    public function idle(callable $callback, int $timeout = 300, int $max_runtime = 0): array {
         $this->client->setTimeout($timeout);
 
         if (!in_array("IDLE", $this->client->getConnection()->getCapabilities()->validatedData())) {
@@ -448,7 +456,10 @@ class Folder {
 
         $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
 
-        while (true) {
+        $stats = ["messages" => 0, "keepalives" => 0, "reconnects" => 0, "runtime" => 0];
+        $start = time();
+
+        while ($max_runtime <= 0 || (time() - $start) < $max_runtime) {
             try {
                 // This polymorphic call is fine - Protocol::idle() will throw an exception beforehand
                 $line = $idle_client->getConnection()->nextLine(Response::empty());
@@ -458,8 +469,17 @@ class Folder {
                 }
                 $meta = $idle_client->getConnection()->meta();
                 if (($meta["timed_out"] ?? false) && !($meta["eof"] ?? true)) {
-                    // Plain read timeout - the connection is still alive, keep waiting for the next event
-                    continue;
+                    // Plain read timeout - the connection is still alive. Re-issue IDLE as a keep-alive
+                    // (rfc2177 §3) so the server does not drop the session for inactivity. If the
+                    // roundtrip fails the connection is silently dead - fall through to a reconnect.
+                    try {
+                        $idle_client->getConnection()->done();
+                        $idle_client->getConnection()->idle();
+                        $stats["keepalives"]++;
+                        continue;
+                    } catch (Exceptions\RuntimeException) {
+                        // silently dead (e.g. NAT drop without FIN) - reconnect below
+                    }
                 }
                 // EOF - the server or an intermediate gateway closed the connection (e.g. after an
                 // inactivity timeout such as the ~30 minutes granted by RFC 2177). Re-establish the
@@ -468,6 +488,7 @@ class Folder {
                 $idle_client->connect();
                 $idle_client->openFolder($this->path, true);
                 $idle_client->getConnection()->idle();
+                $stats["reconnects"]++;
                 continue;
             }
 
@@ -501,10 +522,21 @@ class Folder {
                 $message = $this->query()->getMessageByMsgn($msgn);
                 $message->setSequence($sequence);
                 $callback($message);
+                $stats["messages"]++;
 
                 $this->dispatch("message", "new", $message);
             }
         }
+
+        // Max runtime reached: terminate the IDLE session gracefully. The connection
+        // may already be gone - a failing DONE must not discard the collected stats.
+        try {
+            $idle_client->getConnection()->done();
+        } catch (Exceptions\RuntimeException) {
+            // connection already closed
+        }
+        $stats["runtime"] = time() - $start;
+        return $stats;
     }
 
     /**
