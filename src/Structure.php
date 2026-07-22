@@ -102,7 +102,7 @@ class Structure {
      * @return Part[]
      * @throws InvalidMessageDateException
      */
-    private function parsePart(string $context, int $part_number = 0): array {
+    private function parsePart(string $context, int $part_number = 0, int $depth = 0): array {
         // Optimize split of headers/body to avoid quadratic memory usage on large messages.
         // The previous line-by-line substr loop could allocate huge intermediate strings (e.g. when body contains large attachments).
         $headers = '';
@@ -125,7 +125,7 @@ class Structure {
         $config = $this->header->getConfig();
         $headers = new Header($headers, $config);
         if (($boundary = $headers->getBoundary()) !== null) {
-            $parts = $this->detectParts($boundary, $body, $part_number);
+            $parts = $this->detectParts($boundary, $body, $part_number, $depth + 1);
 
             // we return these parts if there are multiple or if configured to allow a single part here (default)
             // isolated cases a single part here causes an empty body, to workaround this set
@@ -146,16 +146,19 @@ class Structure {
      * @return array
      * @throws InvalidMessageDateException
      */
-    private function detectParts(string $boundary, string $context, int $part_number = 0): array {
-        $base_parts = explode( "--".$boundary, $context);
-        if(count($base_parts) == 0) {
-            $base_parts = explode($boundary, $context);
+    private function detectParts(string $boundary, string $context, int $part_number = 0, int $depth = 0): array {
+        // Bound the nesting depth of multipart structures to prevent a crafted,
+        // deeply nested message from exhausting the stack/memory.
+        $max_depth = (int)($this->options["max_mime_depth"] ?? 50);
+        if ($depth > $max_depth) {
+            return [new Part($context, $this->header->getConfig(), $this->header, $part_number)];
         }
+        $base_parts = explode( "--".$boundary, $context);
         $final_parts = [];
         foreach($base_parts as $ctx) {
             $ctx = substr($ctx, 2);
             if ($ctx !== "--" && $ctx != "" && $ctx != "\r\n") {
-                $parts = $this->parsePart($ctx, $part_number);
+                $parts = $this->parsePart($ctx, $part_number, $depth);
                 foreach ($parts as $part) {
                     $final_parts[] = $part;
                     $part_number = $part->part_number;
@@ -179,7 +182,7 @@ class Structure {
                 throw new MessageContentFetchingException("no content found", 0);
             }
 
-            return $this->detectParts($boundary, $this->raw);
+            return $this->detectParts($boundary, $this->raw, 0, 0);
         }
 
         return [new Part($this->raw, $this->header->getConfig(), $this->header)];

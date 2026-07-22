@@ -45,20 +45,14 @@ class Config {
      */
     public function get(string $key, $default = null): mixed {
         $parts = explode('.', $key);
-        $value = null;
+        $value = $this->config;
         foreach ($parts as $part) {
-            if ($value === null) {
-                if (isset($this->config[$part])) {
-                    $value = $this->config[$part];
-                } else {
-                    break;
-                }
+            if (is_array($value) && isset($value[$part])) {
+                $value = $value[$part];
             } else {
-                if (isset($value[$part])) {
-                    $value = $value[$part];
-                } else {
-                    break;
-                }
+                // A path segment could not be resolved - fall back to the default
+                // instead of returning the last resolved intermediate value.
+                return $default;
             }
         }
 

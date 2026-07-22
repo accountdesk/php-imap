@@ -299,6 +299,10 @@ class Attachment {
     public function save(string $path, ?string $filename = null): bool {
         $filename = $filename ? $this->decodeName($filename) : $this->filename;
 
+        // Always strip any directory component from the final filename, even if
+        // filename sanitisation is disabled, to prevent path traversal on save.
+        $filename = basename(str_replace('\\', '/', (string)$filename));
+
         return file_put_contents($path . DIRECTORY_SEPARATOR . $filename, $this->getContent()) !== false;
     }
 

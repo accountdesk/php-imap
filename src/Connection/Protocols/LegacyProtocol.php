@@ -291,7 +291,7 @@ class LegacyProtocol extends Protocol {
             $uids = is_array($uids) ? $uids : [$uids];
             foreach ($uids as $id) {
                 $response->addCommand("imap_fetchheader");
-                $result[$id] = \imap_fetchheader($this->stream, $id, $uid ? IMAP::ST_UID : IMAP::NIL);
+                $result[$id] = \imap_fetchheader($this->stream, $id, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL);
             }
 
             return $result;
@@ -313,7 +313,7 @@ class LegacyProtocol extends Protocol {
             $uids = is_array($uids) ? $uids : [$uids];
             foreach ($uids as $id) {
                 $response->addCommand("imap_fetch_overview");
-                $raw_flags = \imap_fetch_overview($this->stream, $id, $uid ? IMAP::ST_UID : IMAP::NIL);
+                $raw_flags = \imap_fetch_overview($this->stream, $id, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL);
                 $flags = [];
                 if (is_array($raw_flags) && isset($raw_flags[0])) {
                     $raw_flags = (array)$raw_flags[0];
@@ -417,7 +417,7 @@ class LegacyProtocol extends Protocol {
     public function overview(string $sequence, int|string $uid = IMAP::ST_UID): Response {
         return $this->response("imap_fetch_overview")->wrap(function($response) use ($sequence, $uid) {
             /** @var Response $response */
-            return \imap_fetch_overview($this->stream, $sequence, $uid ? IMAP::ST_UID : IMAP::NIL) ?: [];
+            return \imap_fetch_overview($this->stream, $sequence, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL) ?: [];
         });
     }
 
@@ -468,10 +468,10 @@ class LegacyProtocol extends Protocol {
 
             if ($mode == "+") {
                 $response->addCommand("imap_setflag_full");
-                $status = \imap_setflag_full($this->stream, $from, $flag, $uid ? IMAP::ST_UID : IMAP::NIL);
+                $status = \imap_setflag_full($this->stream, $from, $flag, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL);
             } else {
                 $response->addCommand("imap_clearflag_full");
-                $status = \imap_clearflag_full($this->stream, $from, $flag, $uid ? IMAP::ST_UID : IMAP::NIL);
+                $status = \imap_clearflag_full($this->stream, $from, $flag, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL);
             }
 
             if ($silent === true) {
@@ -531,7 +531,7 @@ class LegacyProtocol extends Protocol {
         return $this->response("imap_mail_copy")->wrap(function($response) use ($from, $folder, $uid) {
             /** @var Response $response */
 
-            if (\imap_mail_copy($this->stream, $from, $this->getAddress() . $folder, $uid ? IMAP::ST_UID : IMAP::NIL)) {
+            if (\imap_mail_copy($this->stream, $from, $this->getAddress() . $folder, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL)) {
                 return [
                     "TAG" . $response->Noun() . " OK Copy completed (0.001 + 0.000 secs).\r\n"
                 ];
@@ -579,7 +579,7 @@ class LegacyProtocol extends Protocol {
      */
     public function moveMessage(string $folder, $from, ?int $to = null, int|string $uid = IMAP::ST_UID): Response {
         return $this->response("imap_mail_move")->wrap(function($response) use ($from, $folder, $uid) {
-            if (\imap_mail_move($this->stream, $from, $this->getAddress() . $folder, $uid ? IMAP::ST_UID : IMAP::NIL)) {
+            if (\imap_mail_move($this->stream, $from, $this->getAddress() . $folder, $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL)) {
                 return [
                     "TAG" . $response->Noun() . " OK Move completed (0.001 + 0.000 secs).\r\n"
                 ];
@@ -601,7 +601,7 @@ class LegacyProtocol extends Protocol {
         return $this->response()->wrap(function($response) use ($messages, $folder, $uid) {
             foreach ($messages as $msg) {
                 $move_response = $this->moveMessage($folder, $msg, null, $uid);
-                $response = $response->include($response);
+                $response->stack($move_response);
                 if (empty($move_response->data())) {
                     return [
                         "TAG" . $response->Noun() . " BAD Move failed (0.001 + 0.000 secs).\r\n",
@@ -741,7 +741,7 @@ class LegacyProtocol extends Protocol {
     public function search(array $params, int|string $uid = IMAP::ST_UID): Response {
         return $this->response("imap_search")->wrap(function($response) use ($params, $uid) {
             $response->setCanBeEmpty(true);
-            $result = \imap_search($this->stream, $params[0], $uid ? IMAP::ST_UID : IMAP::NIL);
+            $result = \imap_search($this->stream, $params[0], $uid === IMAP::ST_UID ? IMAP::ST_UID : IMAP::NIL);
             return $result ?: [];
         });
     }

@@ -93,15 +93,15 @@ abstract class Protocol implements ProtocolInterface {
      * @return int
      */
     public function getCryptoMethod(): int {
-        // Allow the best TLS version(s) we can
+        // Use the additive TLS client mask (negotiates the best available version)
+        // and explicitly add TLS 1.2 and 1.3 when the constants are available.
+        // Do not pin to a single version - the previous code excluded TLS 1.3.
         $cryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
-
-        // PHP 5.6.7 dropped inclusion of TLS 1.1 and 1.2 in STREAM_CRYPTO_METHOD_TLS_CLIENT
-        // so add them back in manually if we can
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT')) {
+            $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT;
+        }
         if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
-            $cryptoMethod = STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
-        }elseif (defined('STREAM_CRYPTO_METHOD_TLSv1_1_CLIENT')) {
-            $cryptoMethod = STREAM_CRYPTO_METHOD_TLSv1_1_CLIENT;
+            $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
         }
 
         return $cryptoMethod;

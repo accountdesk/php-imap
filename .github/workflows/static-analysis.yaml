@@ -1,0 +1,40 @@
+name: Static Analysis
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  mago:
+    runs-on: ubuntu-latest
+    name: Mago (analyze + format)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: openssl, json, mbstring, iconv, fileinfo, libxml, zip
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      # Installs the `mago` binary into $HOME/.cargo/bin (Mago's documented installer).
+      # If the URL changes, see https://mago.carthage.software for the current method.
+      - name: Install Mago
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://carthage.software/mago.sh | bash
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # Only new issues fail the build; existing findings are grandfathered in
+      # mago-baseline.php. Formatting is intentionally not enforced yet (the
+      # codebase predates Mago) - run `composer format` locally to adopt it.
+      - name: Static analysis
+        run: mago analyze

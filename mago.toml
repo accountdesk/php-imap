@@ -1,0 +1,33 @@
+# Mago - PHP toolchain (linter, formatter, static analyzer)
+# https://mago.carthage.software
+#
+# Usage:
+#   mago lint          # style/best-practice lints
+#   mago analyze       # static analysis (type checking)
+#   mago format        # apply formatting  (mago format --check to verify)
+#
+# The library targets PHP ^8.0.2, so analysis runs against the lowest supported version.
+php-version = "8.0.2"
+
+[source]
+# First-party code that gets linted, analyzed and formatted.
+paths = ["src", "tests"]
+# Third-party code that is only read for symbol/type resolution (never reported on).
+includes = ["vendor"]
+excludes = ["src/config", "tests/messages"]
+
+[formatter]
+print-width = 120
+tab-width = 4
+
+[analyzer]
+# Existing analysis findings are grandfathered in this baseline so that CI only
+# fails on *new* issues. Regenerate after cleaning up debt:
+#   mago analyze --baseline mago-baseline.php --generate-baseline
+baseline = "mago-baseline.php"
+
+[linter]
+# Start from Mago's default rule set. Tighten or relax individual rules here as
+# the codebase is cleaned up, e.g.:
+#   [linter.rules]
+#   no-else-clause = { enabled = false }

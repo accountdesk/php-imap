@@ -158,6 +158,11 @@ class Query {
     public function generate_query(): string {
         $query = '';
         $this->query->each(function($statement) use (&$query) {
+            // Defense in depth: CR/LF must never appear inside a search token,
+            // otherwise a crafted value could inject additional IMAP commands.
+            $statement = array_map(function($part) {
+                return is_string($part) ? str_replace(["\r", "\n"], '', $part) : $part;
+            }, $statement);
             if (count($statement) == 1) {
                 $query .= $statement[0];
             } else {
@@ -170,7 +175,8 @@ class Query {
                     )) {
                         $query .= $statement[0] . ' ' . $statement[1];
                     } else {
-                        $query .= $statement[0] . ' "' . $statement[1] . '"';
+                        $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$statement[1]);
+                        $query .= $statement[0] . ' "' . $escaped . '"';
                     }
                 }
             }

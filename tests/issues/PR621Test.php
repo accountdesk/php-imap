@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests;
+namespace Tests\issues;
 
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -12,7 +12,7 @@ use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 /**
  * @see https://github.com/Webklex/php-imap/pull/621
  */
-class PR619Test extends TestCase
+class PR621Test extends TestCase
 {
     private function makeClientWithNullActiveFolder(): Client
     {
@@ -39,28 +39,23 @@ class PR619Test extends TestCase
         // and disconnect() resets active_folder to null.
         $ref = new ReflectionClass($client);
         $prop = $ref->getProperty('active_folder');
-        $prop->setAccessible(true);
         $prop->setValue($client, null);
 
         return $client;
     }
 
-    public function testMakeThrowsTypeErrorWhenActiveFolderIsNull(): void
+    public function testFolderPathFallsBackToInboxWhenActiveFolderIsNull(): void
     {
-        $this->expectException(\TypeError::class);
-
+        // Regression: after an implicit reconnect the client has no active folder,
+        // so Client::getFolderPath() returns null. Config::get() previously returned
+        // a partially-resolved intermediate array for a missing dotted key, which
+        // broke Message::setFolderPath()'s INBOX fallback (Array-to-string cast).
         $client = $this->makeClientWithNullActiveFolder();
-        Message::make(1, 0, $client, "Subject: Test\r\n\r\n", '', []);
-    }
+        $this->assertNull($client->getFolderPath());
 
-    public function testMakeSucceedsAfterFix(): void
-    {
-        $client = $this->makeClientWithNullActiveFolder();
+        $message = Message::fromString("Subject: Test\r\n\r\nHello");
+        $message->setFolderPath($client->getFolderPath());
 
-        $message = Message::make(1, 0, $client, "Subject: Test\r\n\r\n", '', []);
-
-        $this->assertInstanceOf(Message::class, $message);
-        $this->assertIsString($message->getFolderPath());
-        $this->assertNotEmpty($message->getFolderPath());
+        $this->assertSame('INBOX', $message->getFolderPath());
     }
 }

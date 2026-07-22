@@ -261,8 +261,9 @@ class WhereQuery extends Query {
      * @return $this
      * @throws InvalidWhereQueryCriteriaException
      */
-    public function whereFlagged(string $value): static {
-        return $this->where('FLAGGED', $value);
+    public function whereFlagged(string $value = ''): static {
+        // FLAGGED is a valueless IMAP search key; any passed value is ignored.
+        return $this->where('FLAGGED');
     }
 
     /**
@@ -446,7 +447,11 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereHeader($header, $value): static {
-        return $this->where("CUSTOM HEADER $header $value");
+        // Quote and escape both parts so a crafted header name or value cannot
+        // break out of the search token (IMAP command injection).
+        $header = str_replace(["\r", "\n", '"'], '', (string)$header);
+        $value = str_replace(['\\', '"'], ['\\\\', '\\"'], str_replace(["\r", "\n"], '', (string)$value));
+        return $this->where("CUSTOM HEADER \"$header\" \"$value\"");
     }
 
     /**
@@ -478,7 +483,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereLanguage($country_code): static {
-        return $this->where("Content-Language $country_code");
+        return $this->where("CUSTOM Content-Language $country_code");
     }
 
     /**

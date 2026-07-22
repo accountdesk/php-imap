@@ -49,7 +49,18 @@
         }
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "lint": "mago lint",
+        "analyze": "mago analyze",
+        "format": "mago format",
+        "format-check": "mago format --check"
+    },
+    "scripts-descriptions": {
+        "test": "Run the PHPUnit test suite",
+        "lint": "Run Mago lint rules (style / best practices)",
+        "analyze": "Run Mago static analysis (new issues only; existing debt is in mago-baseline.php)",
+        "format": "Apply Mago code formatting",
+        "format-check": "Verify formatting without writing changes"
     },
     "extra": {
         "branch-alias": {

@@ -368,8 +368,14 @@ class Message {
         if(!str_contains($blob, "\r\n")){
             $blob = str_replace("\n", "\r\n", $blob);
         }
-        $raw_header = substr($blob, 0, strpos($blob, "\r\n\r\n"));
-        $raw_body = substr($blob, strlen($raw_header)+4);
+        $split = strpos($blob, "\r\n\r\n");
+        if ($split === false) {
+            $raw_header = $blob;
+            $raw_body = '';
+        } else {
+            $raw_header = substr($blob, 0, $split);
+            $raw_body = substr($blob, $split + 4);
+        }
 
         $instance->parseRawHeader($raw_header);
         $instance->parseRawBody($raw_body);
