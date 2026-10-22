@@ -15,6 +15,7 @@ namespace Tests;
 use PHPUnit\Framework\TestCase;
 use Webklex\PHPIMAP\Config;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
+use Webklex\PHPIMAP\Connection\Protocols\Response;
 use Webklex\PHPIMAP\Exceptions\ConnectionFailedException;
 
 class ImapProtocolTest extends TestCase {
@@ -60,5 +61,50 @@ class ImapProtocolTest extends TestCase {
             'cafile' => '/dummy/path/for/testing',
             'peer_fingerprint' => ['md5' => 40],
         ], $protocol->getSslOptions());
+    }
+
+    /**
+     * Decode a single response line with the protected tokenizer
+     * @param string $line
+     *
+     * @return array
+     */
+    protected function decodeLine(string $line): array {
+        $protocol = new class($this->config, false) extends ImapProtocol {
+            public function decode(string $line): array {
+                return $this->decodeLine(Response::empty(), $line);
+            }
+        };
+        return $protocol->decode($line);
+    }
+
+    /**
+     * A quoted string directly followed by a closing parenthesis must stay one token
+     *
+     * @return void
+     */
+    public function testDecodeLineQuotedStringBeforeClosingParenthesis(): void {
+        self::assertSame(
+            ['1', 'FETCH', ['UID', '1', 'INTERNALDATE', '22-Oct-2026 10:00:00 +0000']],
+            $this->decodeLine('1 FETCH (UID 1 INTERNALDATE "22-Oct-2026 10:00:00 +0000")')
+        );
+
+        // closing more than one list at once
+        self::assertSame(
+            [['a', ['b', 'c d']], 'e'],
+            $this->decodeLine('(a (b "c d")) e')
+        );
+
+        // a quoted string followed by a space keeps working as before
+        self::assertSame(
+            [['UID', '1', 'INTERNALDATE', '22-Oct-2026 10:00:00 +0000', 'RFC822.SIZE', '42']],
+            $this->decodeLine('(UID 1 INTERNALDATE "22-Oct-2026 10:00:00 +0000" RFC822.SIZE 42)')
+        );
+
+        // an escaped quote followed by a closing parenthesis does not end the string
+        self::assertSame(
+            [['Test (\\"quoted\\") x']],
+            $this->decodeLine('("Test (\\"quoted\\") x")')
+        );
     }
 }
