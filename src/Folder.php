@@ -450,7 +450,14 @@ class Folder {
         $idle_client = $this->client->clone();
         $idle_client->connect();
         $idle_client->openFolder($this->path, true);
-        $idle_client->getConnection()->idle();
+
+        // Fetch the protocol connection once, before entering IDLE. Client::getConnection() runs
+        // checkConnection(), which verifies the session with a NOOP. Sending a NOOP while the session
+        // is in IDLE violates rfc2177 - servers such as Dovecot answer "BAD Expected DONE" and end the
+        // IDLE, checkConnection() then silently opens a new session without IDLE and no EXISTS ever
+        // arrives. Inside the loop only the protocol connection itself must be used.
+        $connection = $idle_client->getConnection();
+        $connection->idle();
 
         $last_action = Carbon::now()->addSeconds($timeout);
 
@@ -462,19 +469,19 @@ class Folder {
         while ($max_runtime <= 0 || (time() - $start) < $max_runtime) {
             try {
                 // This polymorphic call is fine - Protocol::idle() will throw an exception beforehand
-                $line = $idle_client->getConnection()->nextLine(Response::empty());
+                $line = $connection->nextLine(Response::empty());
             } catch (Exceptions\RuntimeException $e) {
                 if (!str_contains($e->getMessage(), "empty response") && !str_contains($e->getMessage(), "connection closed")) {
                     throw $e;
                 }
-                $meta = $idle_client->getConnection()->meta();
+                $meta = $connection->meta();
                 if (($meta["timed_out"] ?? false) && !($meta["eof"] ?? true)) {
                     // Plain read timeout - the connection is still alive. Re-issue IDLE as a keep-alive
                     // (rfc2177 §3) so the server does not drop the session for inactivity. If the
                     // roundtrip fails the connection is silently dead - fall through to a reconnect.
                     try {
-                        $idle_client->getConnection()->done();
-                        $idle_client->getConnection()->idle();
+                        $connection->done();
+                        $connection->idle();
                         $stats["keepalives"]++;
                         continue;
                     } catch (Exceptions\RuntimeException) {
@@ -484,10 +491,12 @@ class Folder {
                 // EOF - the server or an intermediate gateway closed the connection (e.g. after an
                 // inactivity timeout such as the ~30 minutes granted by RFC 2177). Re-establish the
                 // idle session instead of busy-looping on the dead stream.
-                $idle_client->getConnection()->reset();
+                $connection->reset();
                 $idle_client->connect();
                 $idle_client->openFolder($this->path, true);
-                $idle_client->getConnection()->idle();
+                // connect() created a new protocol instance - pick it up before entering IDLE again
+                $connection = $idle_client->getConnection();
+                $connection->idle();
                 $stats["reconnects"]++;
                 continue;
             }
@@ -531,7 +540,7 @@ class Folder {
         // Max runtime reached: terminate the IDLE session gracefully. The connection
         // may already be gone - a failing DONE must not discard the collected stats.
         try {
-            $idle_client->getConnection()->done();
+            $connection->done();
         } catch (Exceptions\RuntimeException) {
             // connection already closed
         }
