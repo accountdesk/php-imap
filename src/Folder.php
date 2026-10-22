@@ -423,14 +423,24 @@ class Folder {
      * Idle the current connection
      * @param callable $callback function(Message $message) gets called if a new message is received
      * @param integer $timeout max 1740 seconds - recommended by rfc2177 §3. Should not be lower than the servers "* OK Still here" message interval.
-     *                         Acts as the stream read timeout: after every $timeout seconds of silence the IDLE
-     *                         command gets re-issued as a keep-alive (rfc2177 §3 recommends re-issuing at least
-     *                         every 29 minutes; many servers and NAT gateways drop idle connections much earlier).
+     *                         Keep-alive interval: every $timeout seconds - also if the server sends other untagged
+     *                         data in between (the read timeout is shortened to the time left) - the IDLE command
+     *                         gets re-issued (DONE + IDLE) as a
+     *                         keep-alive (rfc2177 §3 recommends re-issuing at least every 29 minutes; many servers
+     *                         and NAT gateways drop idle connections much earlier).
      * @param integer $max_runtime maximum runtime in seconds, 0 = run forever. When the limit is reached, idle()
      *                             terminates the IDLE session gracefully (DONE) and returns runtime statistics.
      *                             Useful for cron/worker setups that want bounded runs instead of an endless loop.
+     * @param callable|null $on_keepalive function(string $reason) gets called after every keep-alive ($reason =
+     *                             "keepalive") and after every reconnect of the IDLE session ($reason = "reconnect"),
+     *                             once the session is back in IDLE. Use it to verify that no message was missed,
+     *                             e.g. by comparing UIDNEXT from Folder::status(): some servers silently stop sending
+     *                             EXISTS, and EXISTS lines that arrive while DONE/IDLE are exchanged are not reported.
+     *                             The callback must not use the IDLE session itself - Folder::status(),
+     *                             Folder::query() etc. run on the regular client connection, which is not in IDLE.
      *
-     * @return array{messages: int, keepalives: int, reconnects: int, runtime: int}
+     * @return array{messages: int, keepalives: int, reconnects: int, checks: int, runtime: int}
+     *         checks = number of $on_keepalive calls
      *
      * @throws ConnectionFailedException
      * @throws RuntimeException
@@ -440,7 +450,7 @@ class Folder {
      * @throws ImapServerErrorException
      * @throws ResponseException
      */
-    public function idle(callable $callback, int $timeout = 300, int $max_runtime = 0): array {
+    public function idle(callable $callback, int $timeout = 300, int $max_runtime = 0, ?callable $on_keepalive = null): array {
         $this->client->setTimeout($timeout);
 
         if (!in_array("IDLE", $this->client->getConnection()->getCapabilities()->validatedData())) {
@@ -463,10 +473,21 @@ class Folder {
 
         $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
 
-        $stats = ["messages" => 0, "keepalives" => 0, "reconnects" => 0, "runtime" => 0];
+        $stats = ["messages" => 0, "keepalives" => 0, "reconnects" => 0, "checks" => 0, "runtime" => 0];
         $start = time();
+        $last_keepalive = $start;
 
         while ($max_runtime <= 0 || (time() - $start) < $max_runtime) {
+            $line = null;
+            $alive = true;
+            // Wait at most until the next keep-alive is due. Otherwise untagged data such as Dovecot's
+            // "* OK Still here" restarts the read timeout and stretches the interval up to 2 x $timeout.
+            $stream = $connection instanceof \Webklex\PHPIMAP\Connection\Protocols\Protocol ? $connection->getStream() : null;
+            $wait = max(1, $timeout - (time() - $last_keepalive));
+            $shortened = is_resource($stream) && $wait < $timeout;
+            if ($shortened) {
+                stream_set_timeout($stream, $wait);
+            }
             try {
                 // This polymorphic call is fine - Protocol::idle() will throw an exception beforehand
                 $line = $connection->nextLine(Response::empty());
@@ -474,34 +495,17 @@ class Folder {
                 if (!str_contains($e->getMessage(), "empty response") && !str_contains($e->getMessage(), "connection closed")) {
                     throw $e;
                 }
+                // A plain read timeout leaves the connection alive, EOF means it is gone
                 $meta = $connection->meta();
-                if (($meta["timed_out"] ?? false) && !($meta["eof"] ?? true)) {
-                    // Plain read timeout - the connection is still alive. Re-issue IDLE as a keep-alive
-                    // (rfc2177 §3) so the server does not drop the session for inactivity. If the
-                    // roundtrip fails the connection is silently dead - fall through to a reconnect.
-                    try {
-                        $connection->done();
-                        $connection->idle();
-                        $stats["keepalives"]++;
-                        continue;
-                    } catch (Exceptions\RuntimeException) {
-                        // silently dead (e.g. NAT drop without FIN) - reconnect below
-                    }
+                $alive = ($meta["timed_out"] ?? false) && !($meta["eof"] ?? true);
+            } finally {
+                // DONE/IDLE and the commands of the callbacks read with the regular timeout
+                if ($shortened && is_resource($stream)) {
+                    stream_set_timeout($stream, $timeout);
                 }
-                // EOF - the server or an intermediate gateway closed the connection (e.g. after an
-                // inactivity timeout such as the ~30 minutes granted by RFC 2177). Re-establish the
-                // idle session instead of busy-looping on the dead stream.
-                $connection->reset();
-                $idle_client->connect();
-                $idle_client->openFolder($this->path, true);
-                // connect() created a new protocol instance - pick it up before entering IDLE again
-                $connection = $idle_client->getConnection();
-                $connection->idle();
-                $stats["reconnects"]++;
-                continue;
             }
 
-            if (($pos = strpos($line, "EXISTS")) !== false) {
+            if ($line !== null && ($pos = strpos($line, "EXISTS")) !== false) {
                 $msgn = (int)substr($line, 2, $pos - 2);
 
                 // Check if the stream is still alive or should be considered stale
@@ -534,6 +538,46 @@ class Folder {
                 $stats["messages"]++;
 
                 $this->dispatch("message", "new", $message);
+            }
+
+            if ($alive && ($line === null || (time() - $last_keepalive) >= $timeout)) {
+                // Re-issue IDLE as a keep-alive (rfc2177 §3) so the server does not drop the session for
+                // inactivity - after a read timeout, or when the server kept sending other untagged data.
+                // If the roundtrip fails the connection is silently dead - fall through to a reconnect.
+                try {
+                    $connection->done();
+                    $connection->idle();
+                } catch (Exceptions\RuntimeException) {
+                    // silently dead (e.g. NAT drop without FIN) - reconnect below
+                    $alive = false;
+                }
+                if ($alive) {
+                    $stats["keepalives"]++;
+                    $last_keepalive = time();
+                    if ($on_keepalive !== null) {
+                        $on_keepalive("keepalive");
+                        $stats["checks"]++;
+                    }
+                    continue;
+                }
+            }
+
+            if (!$alive) {
+                // EOF - the server or an intermediate gateway closed the connection (e.g. after an
+                // inactivity timeout such as the ~30 minutes granted by RFC 2177). Re-establish the
+                // idle session instead of busy-looping on the dead stream.
+                $connection->reset();
+                $idle_client->connect();
+                $idle_client->openFolder($this->path, true);
+                // connect() created a new protocol instance - pick it up before entering IDLE again
+                $connection = $idle_client->getConnection();
+                $connection->idle();
+                $stats["reconnects"]++;
+                $last_keepalive = time();
+                if ($on_keepalive !== null) {
+                    $on_keepalive("reconnect");
+                    $stats["checks"]++;
+                }
             }
         }
 
