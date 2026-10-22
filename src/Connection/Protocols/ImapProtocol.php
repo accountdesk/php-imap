@@ -275,9 +275,19 @@ class ImapProtocol extends Protocol {
                 $token = substr($token, 1);
             }
             if ($token[0] == '"') {
-                if (preg_match('%^\(*\"((.|\\\|\")*?)\"( |$)%', $line, $matches)) {
+                // A quoted string ends at a space, at the end of the line or at a closing
+                // parenthesis: (UID 1 INTERNALDATE "22-Oct-2026 10:00:00 +0000").
+                // A backslash escapes the next character, so \" never ends the string.
+                if (preg_match('%^\(*"((?:[^"\\\\]|\\\\.|")*?)"(?=[ )]|$)%', $line, $matches)) {
                     $tokens[] = $matches[1];
                     $line = substr($line, strlen($matches[0]));
+                    // close the lists ending right after the quoted string
+                    while ($stack && str_starts_with($line, ')')) {
+                        $child = $tokens;
+                        $tokens = array_pop($stack);
+                        $tokens[] = $child;
+                        $line = substr($line, 1);
+                    }
                     continue;
                 }
             }
