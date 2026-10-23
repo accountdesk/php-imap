@@ -8,6 +8,8 @@
 *  rfc2177 compliant servers (e.g. Dovecot) answer "BAD Expected DONE" and terminate the
 *  IDLE - new messages would then never be reported. Client::getConnection() verifies the
 *  session with a NOOP, so it must not be called inside the idle loop.
+*  It must also not lose new messages: neither an EXISTS that the server sends while DONE/IDLE
+*  are exchanged, nor a message that arrives while the IDLE connection is down.
 */
 
 namespace Tests;
@@ -36,12 +38,13 @@ class IdleTest extends TestCase {
     /**
      * Start the fake IMAP server and return its port
      * @param int $lifetime seconds until the server shuts down
+     * @param string $scenario see support/idle_server.php
      *
      * @return int
      */
-    protected function startServer(int $lifetime): int {
+    protected function startServer(int $lifetime, string $scenario = ""): int {
         $this->log_file = tempnam(sys_get_temp_dir(), "php-imap-idle-");
-        $command = [PHP_BINARY, __DIR__ . "/support/idle_server.php", $this->log_file, (string)$lifetime];
+        $command = [PHP_BINARY, __DIR__ . "/support/idle_server.php", $this->log_file, (string)$lifetime, $scenario];
         $this->server = proc_open($command, [1 => ["pipe", "w"], 2 => ["pipe", "w"]], $pipes);
         self::assertIsResource($this->server, "fake IMAP server could not be started");
         $port = (int)trim((string)fgets($pipes[1]));
@@ -109,5 +112,55 @@ class IdleTest extends TestCase {
         // A login after IDLE was issued means the idle session was silently replaced
         $later_logins = array_filter(array_slice($commands, $first_idle), fn($c) => str_contains(strtoupper($c["line"]), " LOGIN "));
         self::assertSame([], array_values($later_logins), "the idle session was silently reconnected");
+    }
+
+    /**
+     * Run idle() against the fake server and return the subjects passed to the callback
+     * @param string $scenario see support/idle_server.php
+     *
+     * @return array{subjects: array<int, string>, stats: array<string, int>}
+     */
+    protected function idleReceives(string $scenario): array {
+        $port = $this->startServer(8, $scenario);
+
+        $manager = new ClientManager([
+            "options" => ["sequence" => \Webklex\PHPIMAP\IMAP::ST_UID],
+            "accounts" => [
+                "default" => [
+                    "host"          => "127.0.0.1",
+                    "port"          => $port,
+                    "encryption"    => false,
+                    "validate_cert" => false,
+                    "username"      => "user",
+                    "password"      => "secret",
+                    "protocol"      => "imap",
+                ],
+            ],
+        ]);
+        $client = $manager->account("default");
+        $client->connect();
+        $folder = new Folder($client, "INBOX", "/", []);
+
+        $subjects = [];
+        $stats = $folder->idle(function ($message) use (&$subjects) {
+            $subjects[] = (string)$message->getSubject();
+        }, 1, 3);
+
+        return ["subjects" => $subjects, "stats" => $stats];
+    }
+
+    public function testIdleReportsExistsSentDuringDone(): void {
+        $result = $this->idleReceives("exists-on-done");
+
+        self::assertSame(["idle test"], $result["subjects"]);
+        self::assertSame(1, $result["stats"]["messages"]);
+    }
+
+    public function testIdleReportsMessagesThatArrivedWhileReconnecting(): void {
+        $result = $this->idleReceives("lost-connection");
+
+        self::assertGreaterThanOrEqual(1, $result["stats"]["reconnects"]);
+        self::assertSame(["idle test"], $result["subjects"]);
+        self::assertSame(1, $result["stats"]["messages"]);
     }
 }

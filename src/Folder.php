@@ -435,7 +435,8 @@ class Folder {
      *                             "keepalive") and after every reconnect of the IDLE session ($reason = "reconnect"),
      *                             once the session is back in IDLE. Use it to verify that no message was missed,
      *                             e.g. by comparing UIDNEXT from Folder::status(): some servers silently stop sending
-     *                             EXISTS, and EXISTS lines that arrive while DONE/IDLE are exchanged are not reported.
+     *                             EXISTS. (EXISTS lines that arrive while DONE/IDLE are exchanged, and messages that
+     *                             arrive while the IDLE session is reconnecting, are reported by idle() itself.)
      *                             The callback must not use the IDLE session itself - Folder::status(),
      *                             Folder::query() etc. run on the regular client connection, which is not in IDLE.
      *
@@ -459,7 +460,74 @@ class Folder {
 
         $idle_client = $this->client->clone();
         $idle_client->connect();
-        $idle_client->openFolder($this->path, true);
+        $selected = $idle_client->openFolder($this->path, true);
+
+        $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
+
+        $stats = ["messages" => 0, "keepalives" => 0, "reconnects" => 0, "checks" => 0, "runtime" => 0];
+        $last_action = Carbon::now()->addSeconds($timeout);
+
+        // Lowest UID a new message can have. Messages that arrive while the IDLE session is down (between
+        // a connection loss and the reconnect) never produce an EXISTS on the new session - they are only
+        // part of its SELECT response. They are found by comparing UIDNEXT before and after the reconnect.
+        $uidnext = (int)($selected["uidnext"] ?? 0);
+        $uidvalidity = (int)($selected["uidvalidity"] ?? 0);
+
+        $deliver = function (Message $message) use ($callback, $sequence, &$stats, &$uidnext): void {
+            $message->setSequence($sequence);
+            $uidnext = max($uidnext, (int)$message->getUid() + 1);
+            $callback($message);
+            $stats["messages"]++;
+
+            $this->dispatch("message", "new", $message);
+        };
+
+        $prepare_client = function () use (&$last_action, $timeout): void {
+            // Check if the stream is still alive or should be considered stale
+            if (!$this->client->isConnected() || $last_action->isBefore(Carbon::now())) {
+                // Reset the connection before interacting with it. Otherwise, the resource might be stale which
+                // would result in a stuck interaction. If you know of a way of detecting a stale resource, please
+                // feel free to improve this logic. I tried a lot but nothing seem to work reliably...
+                // Things that didn't work:
+                //      - Closing the resource with fclose()
+                //      - Verifying the resource with stream_get_meta_data()
+                //      - Bool validating the resource stream (e.g.: (bool)$stream)
+                //      - Sending a NOOP command
+                //      - Sending a null package
+                //      - Reading a null package
+                //      - Catching the fs warning
+
+                // This polymorphic call is fine - Protocol::idle() will throw an exception beforehand
+                $this->client->getConnection()->reset();
+                // Establish a new connection
+                $this->client->connect();
+            }
+            $last_action = Carbon::now()->addSeconds($timeout);
+
+            // Always reopen the folder - otherwise the new message number isn't known to the current remote session
+            $this->client->openFolder($this->path, true);
+        };
+
+        $handle_line = function (string $line) use ($prepare_client, $deliver): void {
+            if (($pos = strpos($line, "EXISTS")) === false) {
+                return;
+            }
+            $msgn = (int)substr($line, 2, $pos - 2);
+            if ($msgn < 1) {
+                return;
+            }
+            $prepare_client();
+            $deliver($this->query()->getMessageByMsgn($msgn));
+        };
+
+        // EXISTS lines the server sent while IDLE was started or ended - see ImapProtocol::idle() and done()
+        $handle_idle_untagged = function ($connection) use ($handle_line): void {
+            if ($connection instanceof \Webklex\PHPIMAP\Connection\Protocols\ImapProtocol) {
+                foreach ($connection->pullIdleUntaggedResponses() as $line) {
+                    $handle_line($line);
+                }
+            }
+        };
 
         // Fetch the protocol connection once, before entering IDLE. Client::getConnection() runs
         // checkConnection(), which verifies the session with a NOOP. Sending a NOOP while the session
@@ -468,12 +536,8 @@ class Folder {
         // arrives. Inside the loop only the protocol connection itself must be used.
         $connection = $idle_client->getConnection();
         $connection->idle();
+        $handle_idle_untagged($connection);
 
-        $last_action = Carbon::now()->addSeconds($timeout);
-
-        $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
-
-        $stats = ["messages" => 0, "keepalives" => 0, "reconnects" => 0, "checks" => 0, "runtime" => 0];
         $start = time();
         $last_keepalive = $start;
 
@@ -505,39 +569,8 @@ class Folder {
                 }
             }
 
-            if ($line !== null && ($pos = strpos($line, "EXISTS")) !== false) {
-                $msgn = (int)substr($line, 2, $pos - 2);
-
-                // Check if the stream is still alive or should be considered stale
-                if (!$this->client->isConnected() || $last_action->isBefore(Carbon::now())) {
-                    // Reset the connection before interacting with it. Otherwise, the resource might be stale which
-                    // would result in a stuck interaction. If you know of a way of detecting a stale resource, please
-                    // feel free to improve this logic. I tried a lot but nothing seem to work reliably...
-                    // Things that didn't work:
-                    //      - Closing the resource with fclose()
-                    //      - Verifying the resource with stream_get_meta_data()
-                    //      - Bool validating the resource stream (e.g.: (bool)$stream)
-                    //      - Sending a NOOP command
-                    //      - Sending a null package
-                    //      - Reading a null package
-                    //      - Catching the fs warning
-
-                    // This polymorphic call is fine - Protocol::idle() will throw an exception beforehand
-                    $this->client->getConnection()->reset();
-                    // Establish a new connection
-                    $this->client->connect();
-                }
-                $last_action = Carbon::now()->addSeconds($timeout);
-
-                // Always reopen the folder - otherwise the new message number isn't known to the current remote session
-                $this->client->openFolder($this->path, true);
-
-                $message = $this->query()->getMessageByMsgn($msgn);
-                $message->setSequence($sequence);
-                $callback($message);
-                $stats["messages"]++;
-
-                $this->dispatch("message", "new", $message);
+            if ($line !== null) {
+                $handle_line($line);
             }
 
             if ($alive && ($line === null || (time() - $last_keepalive) >= $timeout)) {
@@ -551,6 +584,9 @@ class Folder {
                     // silently dead (e.g. NAT drop without FIN) - reconnect below
                     $alive = false;
                 }
+                // An EXISTS that arrived during the DONE/IDLE exchange is not lost (the session is back in
+                // IDLE - the callback works on the regular client connection)
+                $handle_idle_untagged($connection);
                 if ($alive) {
                     $stats["keepalives"]++;
                     $last_keepalive = time();
@@ -568,12 +604,42 @@ class Folder {
                 // idle session instead of busy-looping on the dead stream.
                 $connection->reset();
                 $idle_client->connect();
-                $idle_client->openFolder($this->path, true);
+                $selected = $idle_client->openFolder($this->path, true);
                 // connect() created a new protocol instance - pick it up before entering IDLE again
                 $connection = $idle_client->getConnection();
+
+                // Messages that arrived while the session was down: UIDNEXT moved, but no EXISTS will follow
+                $new_uidnext = (int)($selected["uidnext"] ?? 0);
+                $new_uidvalidity = (int)($selected["uidvalidity"] ?? 0);
+                $missed = [];
+                if ($uidnext > 0 && $new_uidnext > $uidnext && $new_uidvalidity === $uidvalidity) {
+                    $prepare_client();
+                    $found = $this->client->getConnection()->search(["UID", $uidnext . ":*"], IMAP::ST_UID)->validatedData();
+                    foreach ($found as $uid) {
+                        // "n:*" always matches the highest UID, even if it is lower than n
+                        if ((int)$uid >= $uidnext && (int)$uid < $new_uidnext) {
+                            $missed[] = (int)$uid;
+                        }
+                    }
+                    sort($missed);
+                }
+                if ($new_uidvalidity !== $uidvalidity || $uidnext === 0) {
+                    // UIDs of the old session are meaningless now - start over from the current state
+                    $uidvalidity = $new_uidvalidity;
+                    $uidnext = $new_uidnext;
+                }
+
                 $connection->idle();
                 $stats["reconnects"]++;
                 $last_keepalive = time();
+
+                foreach ($missed as $uid) {
+                    if ($uid >= $uidnext) {
+                        $deliver($this->query()->getMessageByUid($uid));
+                    }
+                }
+                $handle_idle_untagged($connection);
+
                 if ($on_keepalive !== null) {
                     $on_keepalive("reconnect");
                     $stats["checks"]++;
@@ -588,6 +654,9 @@ class Folder {
         } catch (Exceptions\RuntimeException) {
             // connection already closed
         }
+        // Report what the server sent until the IDLE command completed (some servers report changes only then)
+        $handle_idle_untagged($connection);
+
         $stats["runtime"] = time() - $start;
         return $stats;
     }

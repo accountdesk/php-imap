@@ -42,6 +42,12 @@ class ImapProtocol extends Protocol {
     protected int $noun = 0;
 
     /**
+     * Untagged responses received while IDLE was started or ended
+     * @var array<int, string>
+     */
+    protected array $idle_untagged = [];
+
+    /**
      * Imap constructor.
      * @param Config $config
      * @param bool $cert_validation set to false to skip SSL certificate validation
@@ -1375,26 +1381,53 @@ class ImapProtocol extends Protocol {
     /**
      * Send idle command
      *
+     * Untagged responses the server sends before the continuation (e.g. "* 3 EXISTS" for a message that
+     * arrived since the last command) are kept and can be fetched with pullIdleUntaggedResponses().
+     *
      * @throws RuntimeException
      */
     public function idle(): void {
         $response = $this->sendRequest("IDLE");
-        if (!$this->assumedNextLineIgnoreUntagged($response, '+ ')) {
+        while ($this->isUntaggedLine($line = $this->nextLine($response))) {
+            $this->idle_untagged[] = $line;
+        }
+        if (!str_starts_with($line, '+ ')) {
             throw new RuntimeException('idle failed');
         }
     }
 
     /**
      * Send done command
+     *
+     * Untagged responses the server sends before completing the IDLE command (e.g. "* 3 EXISTS" for a
+     * message that arrived while DONE was on its way, or servers that only report changes when IDLE ends)
+     * are kept and can be fetched with pullIdleUntaggedResponses().
+     *
      * @throws RuntimeException
      */
     public function done(): bool {
         $response = new Response($this->noun, $this->debug);
         $this->write($response, "DONE");
-        if (!$this->assumedNextTaggedLineIgnoreUntagged($response, 'OK', $tags)) {
+        while ($this->isUntaggedLine($line = $this->nextLine($response))) {
+            $this->idle_untagged[] = $line;
+        }
+        $parts = explode(' ', $line, 2);
+        if (!str_contains($parts[1] ?? '', 'OK')) {
             throw new RuntimeException('done failed');
         }
         return true;
+    }
+
+    /**
+     * Get and clear the untagged responses received while IDLE was started or ended (see idle() and done()).
+     * Without this, an EXISTS that arrives during the IDLE/DONE exchange would be lost.
+     *
+     * @return array<int, string>
+     */
+    public function pullIdleUntaggedResponses(): array {
+        $lines = $this->idle_untagged;
+        $this->idle_untagged = [];
+        return $lines;
     }
 
     /**
