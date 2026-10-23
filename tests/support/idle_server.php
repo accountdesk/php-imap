@@ -15,7 +15,8 @@
 *  Scenarios (a single message with UID 1 arrives - how it is reported differs):
 *   - "exists-on-done":  the message arrives while the client ends its first IDLE; like servers that
 *                        only report changes when a command completes, the EXISTS is sent between DONE
-*                        and the tagged OK.
+*                        and the tagged OK. Like GreenMail, every later DONE repeats the current size
+*                        ("* 1 EXISTS") - that is not a new message.
 *   - "lost-connection": the message arrives while the IDLE connection is gone - the server closes the
 *                        first IDLE connection after 0.5 s and the message is only visible to the next
 *                        SELECT (no EXISTS is ever sent for it).
@@ -99,8 +100,8 @@ while (microtime(true) < $end) {
             $tag = $state[$id]["idle_tag"];
             $state[$id]["idling"] = false;
             if (strtoupper($line) === "DONE") {
-                if ($scenario === "exists-on-done" && $mailbox === []) {
-                    $send($stream, "* " . $deliver() . " EXISTS");
+                if ($scenario === "exists-on-done") {
+                    $send($stream, "* " . ($mailbox === [] ? $deliver() : count($mailbox)) . " EXISTS");
                 }
                 $send($stream, "$tag OK Idle completed.");
             } else {

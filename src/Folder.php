@@ -472,10 +472,18 @@ class Folder {
         // part of its SELECT response. They are found by comparing UIDNEXT before and after the reconnect.
         $uidnext = (int)($selected["uidnext"] ?? 0);
         $uidvalidity = (int)($selected["uidvalidity"] ?? 0);
+        // Known mailbox size (-1 = unknown). EXISTS reports the size, not "a new message": servers may repeat
+        // it (GreenMail sends the current size again with every completed DONE). Only a larger size is new.
+        $exists = (int)($selected["exists"] ?? -1);
 
         $deliver = function (Message $message) use ($callback, $sequence, &$stats, &$uidnext): void {
+            $uid = (int)$message->getUid();
+            if ($uidnext > 0 && $uid > 0 && $uid < $uidnext) {
+                // already delivered
+                return;
+            }
             $message->setSequence($sequence);
-            $uidnext = max($uidnext, (int)$message->getUid() + 1);
+            $uidnext = max($uidnext, $uid + 1);
             $callback($message);
             $stats["messages"]++;
 
@@ -508,16 +516,29 @@ class Folder {
             $this->client->openFolder($this->path, true);
         };
 
-        $handle_line = function (string $line) use ($prepare_client, $deliver): void {
+        $handle_line = function (string $line) use ($prepare_client, $deliver, &$exists): void {
+            if (preg_match('/^\* \d+ EXPUNGE/i', $line) === 1) {
+                if ($exists > 0) {
+                    $exists--;
+                }
+                return;
+            }
             if (($pos = strpos($line, "EXISTS")) === false) {
                 return;
             }
             $msgn = (int)substr($line, 2, $pos - 2);
-            if ($msgn < 1) {
+            $known = $exists;
+            $exists = $msgn;
+            if ($msgn < 1 || ($known >= 0 && $msgn <= $known)) {
+                // no new message - the server repeated the size or reported a shrunk mailbox
                 return;
             }
             $prepare_client();
-            $deliver($this->query()->getMessageByMsgn($msgn));
+            // Several messages at once (e.g. reported together after DONE): deliver all of them, at most 50
+            $first = $known >= 0 ? max($known + 1, $msgn - 49) : $msgn;
+            for ($n = $first; $n <= $msgn; $n++) {
+                $deliver($this->query()->getMessageByMsgn($n));
+            }
         };
 
         // EXISTS lines the server sent while IDLE was started or ended - see ImapProtocol::idle() and done()
@@ -623,6 +644,7 @@ class Folder {
                     }
                     sort($missed);
                 }
+                $exists = (int)($selected["exists"] ?? -1);
                 if ($new_uidvalidity !== $uidvalidity || $uidnext === 0) {
                     // UIDs of the old session are meaningless now - start over from the current state
                     $uidvalidity = $new_uidvalidity;
