@@ -541,8 +541,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testAppendSendsAMessageWithoutLineBreakAsLiteral(): void {
-        $this->markTestSkipped("BUG: appendMessage() sends a message without \"\\n\" as quoted string - APPEND requires a literal (RFC 3501 9)");
-
         $protocol = $this->connectedProtocol([
             self::step("APPEND \"INBOX\" {11}\r\nSubject: hi", ["{tag} OK Append completed."]),
         ]);

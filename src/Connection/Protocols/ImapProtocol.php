@@ -1159,7 +1159,9 @@ class ImapProtocol extends Protocol {
         if ($date !== null) {
             $tokens[] = $this->escapeString($date);
         }
-        $tokens[] = $this->escapeString($message);
+        // RFC 3501 6.3.11 / 9: the message is always sent as literal - escapeString() would quote a message
+        // without line break, which servers reject
+        $tokens[] = ['{' . strlen($message) . '}', $message];
 
         return $this->requestAndResponse('APPEND', $tokens, true);
     }
