@@ -47,7 +47,7 @@ class FourNestedEmailsTest extends FixtureTestCase {
         self::assertEquals("message/rfc822", $attachment->content_type);
         self::assertEquals("85012e6a26d064a0288ee62618b3192687385adb4a4e27e48a28f738a325ca46", hash("sha256", $attachment->content));
         self::assertEquals(1376, $attachment->size);
-        self::assertEquals(2, $attachment->part_number);
+        self::assertEquals(1, $attachment->part_number);
         self::assertEquals("attachment", $attachment->disposition);
         self::assertNotEmpty($attachment->id);
 

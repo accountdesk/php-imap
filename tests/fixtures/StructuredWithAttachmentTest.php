@@ -48,7 +48,7 @@ class StructuredWithAttachmentTest extends FixtureTestCase {
         self::assertEquals("text/plain", $attachment->content_type);
         self::assertEquals("MyFileContent", $attachment->content);
         self::assertEquals(20, $attachment->size);
-        self::assertEquals(2, $attachment->part_number);
+        self::assertEquals(1, $attachment->part_number);
         self::assertEquals("attachment", $attachment->disposition);
         self::assertNotEmpty($attachment->id);
     }

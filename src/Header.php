@@ -292,7 +292,7 @@ class Header {
     public function rfc822_parse_headers($raw_headers): object {
         $headers = [];
         $imap_headers = [];
-        $raw_headers = (string)$raw_headers;
+        $raw_headers = preg_replace("/\r?\n/", "\r\n", (string)$raw_headers);
         if (extension_loaded('imap') && $this->options["rfc822"]) {
             $raw_imap_headers = (array)\imap_rfc822_parse_headers($raw_headers);
             foreach ($raw_imap_headers as $key => $values) {

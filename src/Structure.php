@@ -103,24 +103,7 @@ class Structure {
      * @throws InvalidMessageDateException
      */
     private function parsePart(string $context, int $part_number = 0, int $depth = 0): array {
-        // Optimize split of headers/body to avoid quadratic memory usage on large messages.
-        // The previous line-by-line substr loop could allocate huge intermediate strings (e.g. when body contains large attachments).
-        $headers = '';
-        $body = $context;
-
-        $pos = strpos($context, "\r\n\r\n");
-        if ($pos !== false) {
-            // Keep the first CRLF (line terminator of last header) in headers, like legacy behavior.
-            $headers = substr($context, 0, $pos + 2);
-            $body = substr($context, $pos + 2);
-        } else {
-            while (($pos = strpos($body, "\r\n")) > 0) {
-                $body = substr($body, $pos + 2);
-            }
-            $headers = substr($context, 0, strlen($body) * -1);
-        }
-
-        $body = substr($body, 0, -2);
+        [$headers, $body] = Part::splitHeaderAndBody($context);
 
         $config = $this->header->getConfig();
         $headers = new Header($headers, $config);
@@ -153,11 +136,9 @@ class Structure {
         if ($depth > $max_depth) {
             return [new Part($context, $this->header->getConfig(), $this->header, $part_number)];
         }
-        $base_parts = explode( "--".$boundary, $context);
         $final_parts = [];
-        foreach($base_parts as $ctx) {
-            $ctx = substr($ctx, 2);
-            if ($ctx !== "--" && $ctx != "" && $ctx != "\r\n") {
+        foreach(self::splitMultipart($boundary, $context) as $ctx) {
+            if (trim($ctx) !== "") {
                 $parts = $this->parsePart($ctx, $part_number, $depth);
                 foreach ($parts as $part) {
                     $final_parts[] = $part;
@@ -167,6 +148,45 @@ class Structure {
             }
         }
         return $final_parts;
+    }
+
+    /**
+     * Split a multipart body into its body parts (RFC 2046 5.1.1)
+     *
+     * A delimiter is "--boundary" at the beginning of a line, optionally followed by whitespace; the line break
+     * in front of it belongs to the delimiter. CRLF and bare LF line endings are accepted (some servers return
+     * messages as they were stored, e.g. with LF only), the content of the parts is not changed. The preamble
+     * and the epilogue after the close delimiter ("--boundary--") are no parts. If the body does not contain
+     * the delimiter at all, the whole body is returned as a single part.
+     * @param string $boundary
+     * @param string $context
+     *
+     * @return string[]
+     */
+    public static function splitMultipart(string $boundary, string $context): array {
+        $pattern = '/(?:\A|\r?\n)--' . preg_quote($boundary, '/') . '(--)?[ \t]*(?=\r?\n|\z)(?:\r?\n)?/';
+        if (!preg_match_all($pattern, $context, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            return [$context];
+        }
+
+        $parts = [];
+        $count = count($matches);
+        for ($i = 0; $i < $count; $i++) {
+            if (isset($matches[$i][1]) && $matches[$i][1][0] === "--") {
+                // close delimiter - everything behind it is the epilogue
+                break;
+            }
+            $start = $matches[$i][0][1] + strlen($matches[$i][0][0]);
+            $end = isset($matches[$i + 1]) ? $matches[$i + 1][0][1] : strlen($context);
+            $part = substr($context, $start, $end - $start);
+            if (!isset($matches[$i + 1])) {
+                // the close delimiter is missing (truncated message): the trailing line break is no content
+                $part = preg_replace('/\r?\n\z/', '', $part);
+            }
+            $parts[] = $part;
+        }
+
+        return $parts;
     }
 
     /**

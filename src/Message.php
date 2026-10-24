@@ -369,13 +369,14 @@ class Message {
         if(!str_contains($blob, "\r\n")){
             $blob = str_replace("\n", "\r\n", $blob);
         }
-        $split = strpos($blob, "\r\n\r\n");
-        if ($split === false) {
+        // the header ends at the first blank line - also with bare LF line endings in a message which contains
+        // a CRLF somewhere else (e.g. inside a binary attachment) and therefore was not converted above
+        if (preg_match('/\r?\n\r?\n/', $blob, $match, PREG_OFFSET_CAPTURE)) {
+            $raw_header = substr($blob, 0, $match[0][1]);
+            $raw_body = substr($blob, $match[0][1] + strlen($match[0][0]));
+        } else {
             $raw_header = $blob;
             $raw_body = '';
-        } else {
-            $raw_header = substr($blob, 0, $split);
-            $raw_body = substr($blob, $split + 4);
         }
 
         $instance->parseRawHeader($raw_header);
