@@ -5,3 +5,4 @@ composer.lock
 test.php
 .phpunit.result.cache
 phpunit.xml
+tests/servers/targets.local.php

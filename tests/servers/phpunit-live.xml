@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit configuration for running the live suites (tests/live + tests/issues) against one target of the
+  server matrix; used by ".claude/scripts/imap-servers.sh live <target>", which sets the LIVE_MAILBOX_*
+  variables from tests/servers/targets.php. Paths are relative to this file.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" bootstrap="../../vendor/autoload.php" backupGlobals="false" backupStaticAttributes="false" colors="true" verbose="true" convertErrorsToExceptions="true" convertNoticesToExceptions="true" convertWarningsToExceptions="true" processIsolation="false" stopOnFailure="false" cacheResult="false" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd">
+  <coverage>
+    <include>
+      <directory suffix=".php">../../src/</directory>
+    </include>
+  </coverage>
+  <testsuites>
+    <testsuite name="live">
+      <directory>../live</directory>
+      <directory>../issues</directory>
+    </testsuite>
+  </testsuites>
+</phpunit>
