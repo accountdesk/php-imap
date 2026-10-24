@@ -59,7 +59,6 @@ class FoldedHeadersTest extends FixtureTestCase {
      * @return void
      */
     public function testRepeatedHeaders() : void {
-        $this->markTestSkipped("BUG: Header::rfc822_parse_headers() joins exactly two occurrences of a header with a space (1 -> string, 2 -> joined, 3+ -> array)");
         $message = $this->getFixture("folded_headers.eml");
 
         self::assertSame([

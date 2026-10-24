@@ -175,7 +175,6 @@ class HeaderDetailTest extends TestCase {
     }
 
     public function testEmptyAddressInFrom(): void {
-        $this->markTestSkipped("BUG: 'From: <>' produces an address with mailbox '>' (the '>' fix only exists in parseAddresses())");
         $header = $this->header("From: <>");
 
         foreach ($header->get("from")->all() as $address) {
@@ -184,7 +183,6 @@ class HeaderDetailTest extends TestCase {
     }
 
     public function testNullReturnPathIsNoSpoofing(): void {
-        $this->markTestSkipped("BUG: Header::detectSpoofing() counts an empty Return-Path (<>, bounces) as another sender");
         $header = $this->header("Return-Path: <>\r\nFrom: a@b.c");
 
         self::assertFalse($header->has("spoofed"));
@@ -210,7 +208,6 @@ class HeaderDetailTest extends TestCase {
     }
 
     public function testEscapedQuoteInParameter(): void {
-        $this->markTestSkipped("BUG: Header::read_attribute() drops escaped characters inside quoted values (name=\"a\\\"b.txt\" -> 'ab.txt')");
         $header = $this->header("Content-Type: text/plain; name=\"a\\\"b.txt\"; charset=utf-8");
 
         self::assertSame("a\"b.txt", (string)$header->get("name"));
