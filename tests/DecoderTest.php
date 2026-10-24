@@ -185,14 +185,10 @@ class DecoderTest extends TestCase {
     }
 
     public function testMessageDecoderBinaryEncoding(): void {
-        if (!extension_loaded('imap')) {
-            $this->markTestSkipped("BUG: MessageDecoder::decode() base64-decodes MESSAGE_ENC_BINARY content when ext-imap is missing");
-        }
         self::assertSame("raw \x00 binary", (new MessageDecoder())->decode("raw \x00 binary", IMAP::MESSAGE_ENC_BINARY));
     }
 
     public function testMessageDecoderArrayKeepsEncoding(): void {
-        $this->markTestSkipped("BUG: MessageDecoder::decode() ignores the encoding for array values");
         $decoder = new MessageDecoder();
 
         self::assertSame(["x", "y"], $decoder->decode([base64_encode("x"), base64_encode("y")], IMAP::MESSAGE_ENC_BASE64));
@@ -251,7 +247,6 @@ class DecoderTest extends TestCase {
     }
 
     public function testEncodingAliasesGetNull(): void {
-        $this->markTestSkipped("BUG: EncodingAliases::get(null) without fallback returns null although the return type is string (TypeError)");
         self::assertSame("", EncodingAliases::get(null));
     }
 

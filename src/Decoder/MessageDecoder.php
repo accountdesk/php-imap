@@ -25,17 +25,16 @@ class MessageDecoder extends Decoder {
 
     public function decode(array|string|null $value, ?string $encoding = null): mixed {
         if(is_array($value)) {
-            return array_map(function($item){
-                return $this->decode($item);
+            return array_map(function($item) use ($encoding) {
+                return $this->decode($item, $encoding);
             }, $value);
         }
 
         switch ($encoding) {
             case IMAP::MESSAGE_ENC_BINARY:
-                if (extension_loaded('imap')) {
-                    return base64_decode(\imap_binary($value));
-                }
-                return base64_decode($value);
+                // binary content is not transfer encoded at all (the former base64_decode(imap_binary($value))
+                // was a round trip that returned $value unchanged - and corrupted it without ext-imap)
+                return $value;
             case IMAP::MESSAGE_ENC_BASE64:
                 return base64_decode($value);
             case IMAP::MESSAGE_ENC_QUOTED_PRINTABLE:

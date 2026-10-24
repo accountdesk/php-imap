@@ -25,9 +25,6 @@ class BinaryTransferEncodingTest extends FixtureTestCase {
      * @return void
      */
     public function testFixture() : void {
-        if (extension_loaded('imap') === false) {
-            $this->markTestSkipped("BUG: MessageDecoder::decode() base64-decodes 'binary' parts when ext-imap is missing");
-        }
         $message = $this->getFixture("binary_transfer_encoding.eml");
 
         self::assertSame("binary", (string)$message->content_transfer_encoding);
