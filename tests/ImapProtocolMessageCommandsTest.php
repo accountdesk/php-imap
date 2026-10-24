@@ -452,8 +452,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
      * to COPY, STORE \Deleted and EXPUNGE.
      */
     public function testMoveFallsBackToCopyWithoutMoveCapability(): void {
-        $this->markTestSkipped("BUG: moveMessage()/moveManyMessages() never reach the COPY/STORE/EXPUNGE fallback - the rejected MOVE throws ImapServerErrorException");
-
         $protocol = $this->connectedProtocol([
             self::step('UID MOVE 5 "Archive"', ["{tag} BAD Error in IMAP command UID MOVE: Unknown command (0.001 + 0.000 secs)."]),
             self::step('UID COPY 5 "Archive"', ["{tag} OK [COPYUID 1385478918 5 10] Copy completed."]),
@@ -468,6 +466,44 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
 
         self::assertTrue($protocol->moveMessage("Archive", 5)->successful());
         self::assertTrue($protocol->moveManyMessages([6, 7], "Archive")->successful());
+        $this->assertScriptCompleted();
+    }
+
+    /**
+     * A NO means the server knows MOVE but could not move (here: missing target) - no COPY fallback
+     */
+    public function testMoveRejectedWithNoDoesNotFallBack(): void {
+        $protocol = $this->connectedProtocol([
+            self::step('UID MOVE 5 "Nope"', ["{tag} NO [TRYCREATE] Mailbox doesn't exist: Nope (0.001 + 0.000 secs)."]),
+            self::step('UID MOVE 5,6 "Nope"', ["{tag} NO [TRYCREATE] Mailbox doesn't exist: Nope (0.001 + 0.000 secs)."]),
+        ]);
+
+        foreach ([fn() => $protocol->moveMessage("Nope", 5), fn() => $protocol->moveManyMessages([5, 6], "Nope")] as $move) {
+            try {
+                $move();
+                self::fail("ImapServerErrorException expected");
+            } catch (ImapServerErrorException $e) {
+                self::assertStringContainsString("[TRYCREATE]", $e->getMessage());
+            }
+        }
+        $this->assertScriptCompleted();
+    }
+
+    /**
+     * The fallback stops at the first failing step
+     */
+    public function testMoveFallbackStopsWhenCopyFails(): void {
+        $protocol = $this->connectedProtocol([
+            self::step('UID MOVE 5 "Archive"', ["{tag} BAD Error in IMAP command UID MOVE: Unknown command (0.001 + 0.000 secs)."]),
+            self::step('UID COPY 5 "Archive"', ["{tag} NO [OVERQUOTA] Quota exceeded (mailbox for user is full) (0.001 + 0.000 secs)."]),
+        ], ["greeting" => "* OK [CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS] Server ready."]);
+
+        try {
+            $protocol->moveMessage("Archive", 5);
+            self::fail("ImapServerErrorException expected");
+        } catch (ImapServerErrorException $e) {
+            self::assertStringContainsString("[OVERQUOTA]", $e->getMessage());
+        }
         $this->assertScriptCompleted();
     }
 
