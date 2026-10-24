@@ -127,8 +127,32 @@ class PartDetailTest extends TestCase {
         self::assertTrue($this->part("Content-Type: text/plain\r\nContent-Disposition: attachment")->isAttachment());
     }
 
+    public function testMessagePartialId(): void {
+        // RFC 2046 5.2.2: the "id" parameter of message/partial is the id of the part
+        $part = $this->part("Content-Type: message/partial; id=\"ABC@host.com\"; number=1; total=2");
+
+        self::assertSame("ABC@host.com", (string)$part->id);
+        self::assertSame("partial", $part->subtype);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_MESSAGE, $part->type);
+    }
+
+    public function testContentTypeWithoutSubtype(): void {
+        // broken mailers send "Content-Type: text"
+        $part = $this->part("Content-Type: text");
+
+        self::assertNull($part->subtype);
+        self::assertSame("text", $part->content_type);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_TEXT, $part->type);
+        self::assertFalse($part->isAttachment());
+
+        self::assertSame(IMAP::ATTACHMENT_TYPE_OTHER, $this->part("Content-Type: x-custom/thing")->type);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_AUDIO, $this->part("Content-Type: AUDIO/mpeg")->type);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_VIDEO, $this->part("Content-Type: video/mp4")->type);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_MODEL, $this->part("Content-Type: model/gltf+json")->type);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_MULTIPART, $this->part("Content-Type: multipart/mixed")->type);
+    }
+
     public function testDispositionIsCaseInsensitive(): void {
-        $this->markTestSkipped("BUG: Part::isAttachment() compares the disposition 'inline' case-sensitively, 'INLINE' text parts become attachments");
         self::assertFalse($this->part("Content-Type: text/plain\r\nContent-Disposition: INLINE")->isAttachment());
     }
 }

@@ -305,7 +305,6 @@ class QueryFetchTest extends TestCase {
     }
 
     public function testExtensionsAreAccessibleViaHeaderGet(): void {
-        $this->markTestSkipped("BUG: Header::set() stores the extension under 'X-GM-LABELS', Header::get() looks up 'x_gm_labels'");
         $messages = $this->query(["X-GM-LABELS"])->whereAll()->limit(1)->get();
 
         self::assertSame(["\\Inbox", "label-1"], $messages->first()->getHeader()->get("X-GM-LABELS")->all());

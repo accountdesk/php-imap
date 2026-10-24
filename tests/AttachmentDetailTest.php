@@ -119,17 +119,23 @@ class AttachmentDetailTest extends TestCase {
         $message = $this->message();
         $config = $message->getConfig();
 
-        $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822\r\nContent-Description: Forwarded message", $config), 1);
-        $part->type = IMAP::ATTACHMENT_TYPE_MESSAGE;
-        self::assertSame("Forwarded message", (new Attachment($message, $part))->name);
+        // the type is taken from the content type
+        $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822\r\nContent-Description: =?utf-8?Q?Weitergeleitete_Nachricht_=C3=A4?=", $config), 1);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_MESSAGE, $part->type);
+        self::assertSame("Weitergeleitete Nachricht ä", (new Attachment($message, $part))->name);
 
         $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822", $config), 1);
-        $part->type = IMAP::ATTACHMENT_TYPE_MESSAGE;
         self::assertSame("rfc822", (new Attachment($message, $part))->name);
 
         $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822; name=\"fwd.eml\"", $config), 1);
-        $part->type = IMAP::ATTACHMENT_TYPE_MESSAGE;
         self::assertSame("fwd.eml", (new Attachment($message, $part))->name);
+
+        // a filename wins over the description / subtype
+        $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822\r\nContent-Disposition: attachment; filename=\"fwd.eml\"", $config), 1);
+        $attachment = new Attachment($message, $part);
+        self::assertSame("fwd.eml", $attachment->name);
+        self::assertSame("fwd.eml", $attachment->filename);
+        self::assertSame("message", $attachment->type);
     }
 
     public function testNameFallbacks(): void {
@@ -159,6 +165,19 @@ class AttachmentDetailTest extends TestCase {
         self::assertSame("a b.txt", $attachment->decodeName("a%20b.txt"));
         // leading dots are removed
         self::assertSame("hidden", $attachment->decodeName("..hidden"));
+        // "+" stays a plus in percent encoded names
+        self::assertSame("C++ Übersicht.pdf", $attachment->decodeName("utf-8''C++%20%C3%9Cbersicht.pdf"));
+        self::assertSame("a+b.txt", $attachment->decodeName("a+b.txt"));
+        // raw 8bit names (no valid UTF-8) are read as Windows-1252, raw UTF-8 is kept
+        self::assertSame("Grüße.txt", $attachment->decodeName("Gr\xFC\xDFe.txt"));
+        self::assertSame("Grüße.txt", $attachment->decodeName("Grüße.txt"));
+    }
+
+    public function testRaw8bitFilenameParameter(): void {
+        $attachment = $this->attachment("Content-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"Pr\xE4sentation.pdf\"");
+
+        self::assertSame("Präsentation.pdf", $attachment->filename);
+        self::assertSame("Präsentation.pdf", $attachment->name);
     }
 
     public function testSanitizingCanBeDisabled(): void {

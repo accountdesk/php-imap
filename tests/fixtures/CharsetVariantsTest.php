@@ -41,9 +41,6 @@ class CharsetVariantsTest extends FixtureTestCase {
      * @return void
      */
     public function testEncodedPersonalName() : void {
-        if (!extension_loaded('imap')) {
-            $this->markTestSkipped("Encoded words in headers are only decoded with ext-imap (see CLAUDE.md baseline)");
-        }
         $message = $this->getFixture("charset_variants.eml");
 
         self::assertSame("Jörg", $message->from->first()->personal);

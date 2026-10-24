@@ -22,6 +22,7 @@ use Webklex\PHPIMAP\Exceptions\MessageContentFetchingException;
 use Webklex\PHPIMAP\Exceptions\MethodNotFoundException;
 use Webklex\PHPIMAP\Exceptions\SpoofingAttemptDetectedException;
 use Webklex\PHPIMAP\Header;
+use Webklex\PHPIMAP\Exceptions\RuntimeException;
 use Webklex\PHPIMAP\IMAP;
 use Webklex\PHPIMAP\Message;
 use Webklex\PHPIMAP\Structure;
@@ -162,6 +163,26 @@ class MessageParsingTest extends TestCase {
         self::assertSame("\x00\x01\x02", $attachment->content);
         self::assertSame(2, $attachment->part_number);
         self::assertSame(3, strlen($attachment->getContent()));
+    }
+
+    public function testMaxMimeDepth(): void {
+        $config = Config::make(["options" => ["max_mime_depth" => 1]]);
+        $body = "--a\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n".
+            "--b\r\nContent-Type: multipart/mixed; boundary=\"c\"\r\n\r\n".
+            "--c\r\nContent-Type: text/plain\r\n\r\ndeep\r\n--c--\r\n--b--\r\n--a--\r\n";
+        $message = Message::fromString($this->raw("", $body, 'multipart/mixed; boundary="a"'), $config);
+
+        // nesting deeper than allowed is not parsed any further: the rest is kept as one part
+        $parts = $message->getStructure()->parts;
+        self::assertCount(1, $parts);
+        self::assertSame("--c\r\nContent-Type: text/plain\r\n\r\ndeep\r\n--c--", $parts[0]->content);
+        self::assertFalse($message->hasTextBody());
+    }
+
+    public function testFromFileWithoutFile(): void {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Unable to read file");
+        Message::fromFile(__DIR__ . "/messages/does-not-exist.eml");
     }
 
     public function testDuplicateAttachmentIdsReplaceEachOther(): void {

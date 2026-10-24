@@ -12,7 +12,6 @@
 
 namespace Webklex\PHPIMAP\Decoder;
 
-use Exception;
 use Webklex\PHPIMAP\EncodingAliases;
 use Webklex\PHPIMAP\IMAP;
 
@@ -25,17 +24,16 @@ class MessageDecoder extends Decoder {
 
     public function decode(array|string|null $value, ?string $encoding = null): mixed {
         if(is_array($value)) {
-            return array_map(function($item){
-                return $this->decode($item);
+            return array_map(function($item) use ($encoding) {
+                return $this->decode($item, $encoding);
             }, $value);
         }
 
         switch ($encoding) {
             case IMAP::MESSAGE_ENC_BINARY:
-                if (extension_loaded('imap')) {
-                    return base64_decode(\imap_binary($value));
-                }
-                return base64_decode($value);
+                // binary content is not transfer encoded at all (the former base64_decode(imap_binary($value))
+                // was a round trip that returned $value unchanged - and corrupted it without ext-imap)
+                return $value;
             case IMAP::MESSAGE_ENC_BASE64:
                 return base64_decode($value);
             case IMAP::MESSAGE_ENC_QUOTED_PRINTABLE:
@@ -102,18 +100,11 @@ class MessageDecoder extends Decoder {
             return $str;
         }
 
-        if (function_exists('iconv') && !EncodingAliases::isUtf7($from) && !EncodingAliases::isUtf7($to)) {
-            try {
-                return iconv($from, $to.'//IGNORE', $str);
-            } catch (Exception) {
-                return @iconv($from, $to, $str);
-            }
-        } else {
-            if (!$from) {
-                return mb_convert_encoding($str, $to);
-            }
-            return mb_convert_encoding($str, $to, $from);
+        if (!is_string($str)) {
+            return $str;
         }
+
+        return EncodingAliases::convertString($str, $from, $to);
     }
 
 }

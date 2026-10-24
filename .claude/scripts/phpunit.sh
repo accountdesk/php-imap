@@ -6,6 +6,7 @@
 #   .claude/scripts/phpunit.sh --filter testName tests/IdleTest.php
 #   .claude/scripts/phpunit.sh --coverage                      # + Coverage: build/coverage (HTML), build/coverage.txt
 #   PHP_VERSION=8.0 .claude/scripts/phpunit.sh                 # andere PHP-Version (Image wird bei Bedarf gebaut)
+#   PHP_IMAP=1 .claude/scripts/phpunit.sh                      # mit ext-imap (Image php-imap-test:<version>-imap)
 #   COVERAGE_DIR=build/cov-x .claude/scripts/phpunit.sh --coverage   # eigenes Ausgabeverzeichnis
 #   DOCKER_ARGS="--network x -e LIVE_MAILBOX=true" ...         # zusätzliche docker-run-Argumente
 set -e
@@ -14,9 +15,16 @@ cd "$(dirname "$0")/../.."
 PHP_VERSION="${PHP_VERSION:-8.3}"
 COVERAGE_DIR="${COVERAGE_DIR:-build}"
 IMAGE="php-imap-test:$PHP_VERSION"
+WITH_IMAP=0
+BASE_SUFFIX=
+if [ "${PHP_IMAP:-0}" = "1" ]; then
+    IMAGE="$IMAGE-imap"
+    WITH_IMAP=1
+    BASE_SUFFIX=-bookworm
+fi
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    docker build -q -f tests/docker/php.Dockerfile --build-arg PHP_VERSION="$PHP_VERSION" -t "$IMAGE" tests/docker >/dev/null
+    docker build -q -f tests/docker/php.Dockerfile --build-arg PHP_VERSION="$PHP_VERSION" --build-arg WITH_IMAP="$WITH_IMAP" --build-arg BASE_SUFFIX="$BASE_SUFFIX" -t "$IMAGE" tests/docker >/dev/null
 fi
 
 # run <command> [args...] - args are passed through unchanged (no second round of shell parsing)

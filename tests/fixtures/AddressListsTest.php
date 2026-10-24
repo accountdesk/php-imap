@@ -73,7 +73,6 @@ class AddressListsTest extends FixtureTestCase {
      * @return void
      */
     public function testDisplayNameQuotesAreRemoved() : void {
-        $this->markTestSkipped("BUG: Header::decodeAddresses()/parseAddresses() keep the quotes of '\"Doe, John\"' and a trailing quote of \"'Single Quoted'\"");
         $message = $this->getFixture("address_lists.eml");
 
         self::assertSame("Doe, John", $message->from->first()->personal);

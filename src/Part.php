@@ -198,9 +198,15 @@ class Part {
             $content_type = $content_types[0];
             $parts = explode(';', $content_type);
             $this->content_type = trim($parts[0]);
+            $this->type = $this->parseType($this->content_type);
         }
 
-        $this->content = trim(rtrim($body));
+        // Surrounding whitespace is no content for text and transfer encoded data (base64, quoted-printable), but
+        // a binary / 8bit encoded attachment is the raw data and may start or end with whitespace or NUL bytes
+        $raw_data = in_array($this->encoding, [IMAP::MESSAGE_ENC_BINARY, IMAP::MESSAGE_ENC_8BIT])
+            && $this->content_type !== null
+            && preg_match('/^(text|multipart|message)\//i', $this->content_type) !== 1;
+        $this->content = $raw_data ? $body : trim($body);
         $this->bytes = strlen($this->content);
     }
 
@@ -211,24 +217,58 @@ class Part {
      * @throws InvalidMessageDateException
      */
     private function findHeaders(): string {
-        // Split headers/body at the first blank line via a single strpos instead of a
-        // line-by-line substr loop, which is quadratic on large parts (e.g. attachments).
-        $pos = strpos($this->raw, "\r\n\r\n");
-        if ($pos !== false) {
-            $headers = substr($this->raw, 0, $pos + 2);
-            $body = substr($this->raw, $pos + 2);
-        } else {
-            $body = $this->raw;
-            while (($p = strpos($body, "\r\n")) > 0) {
-                $body = substr($body, $p + 2);
-            }
-            $headers = substr($this->raw, 0, strlen($body) * -1);
-        }
-        $body = substr($body, 0, -2);
+        [$headers, $body] = self::splitHeaderAndBody($this->raw);
 
         $this->header = new Header($headers, $this->config);
 
         return $body;
+    }
+
+    /**
+     * Split a raw body part into its header and its body at the first blank line
+     *
+     * CRLF and bare LF line endings are accepted. The header keeps the line break of its last line, the blank
+     * line itself belongs to neither, the body is returned unchanged. A part starting with a blank line has no
+     * header; a part without a blank line is a header only if its first line is a header field, otherwise
+     * it is a body only.
+     * @param string $raw
+     *
+     * @return string[] [header, body]
+     */
+    public static function splitHeaderAndBody(string $raw): array {
+        if (preg_match('/\A\r?\n/', $raw, $match)) {
+            return ["", substr($raw, strlen($match[0]))];
+        }
+        if (preg_match('/(\r?\n)\r?\n/', $raw, $match, PREG_OFFSET_CAPTURE)) {
+            $pos = $match[0][1];
+            return [substr($raw, 0, $pos + strlen($match[1][0])), substr($raw, $pos + strlen($match[0][0]))];
+        }
+        if (preg_match('/\A[!-9;-~]+:/', $raw)) {
+            return [$raw, ""];
+        }
+
+        return ["", $raw];
+    }
+
+    /**
+     * Map the primary type of a content type to the IMAP::ATTACHMENT_TYPE_* constant (like the "type" of
+     * imap_fetchstructure(); IMAP::ATTACHMENT_TYPE_TEXT equals IMAP::MESSAGE_TYPE_TEXT)
+     * @param string $content_type
+     *
+     * @return int
+     */
+    private function parseType(string $content_type): int {
+        return match (strtolower(explode("/", $content_type)[0])) {
+            "text" => IMAP::ATTACHMENT_TYPE_TEXT,
+            "multipart" => IMAP::ATTACHMENT_TYPE_MULTIPART,
+            "message" => IMAP::ATTACHMENT_TYPE_MESSAGE,
+            "application" => IMAP::ATTACHMENT_TYPE_APPLICATION,
+            "audio" => IMAP::ATTACHMENT_TYPE_AUDIO,
+            "image" => IMAP::ATTACHMENT_TYPE_IMAGE,
+            "video" => IMAP::ATTACHMENT_TYPE_VIDEO,
+            "model" => IMAP::ATTACHMENT_TYPE_MODEL,
+            default => IMAP::ATTACHMENT_TYPE_OTHER,
+        };
     }
 
     /**
@@ -305,7 +345,7 @@ class Part {
             }
         }
 
-        if ($this->disposition === "inline" && $this->filename == null && $this->name == null && !$this->header->has("content_id")) {
+        if (strtolower($this->disposition ?? '') === "inline" && $this->filename == null && $this->name == null && !$this->header->has("content_id")) {
             return false;
         }
         return true;
