@@ -160,8 +160,6 @@ class ImapProtocolMailboxTest extends ScriptedServerTestCase {
     }
 
     public function testFolderStatusWithoutStatusResponse(): void {
-        $this->markTestSkipped("BUG: folderStatus() takes the first line as STATUS response - for the tagged OK line it iterates over a string (warning, empty result)");
-
         $protocol = $this->connectedProtocol([
             self::step('STATUS "INBOX" (MESSAGES)', ["{tag} OK Status completed."]),
         ]);
@@ -176,8 +174,6 @@ class ImapProtocolMailboxTest extends ScriptedServerTestCase {
      * any command response.
      */
     public function testFolderStatusIgnoresUnsolicitedResponses(): void {
-        $this->markTestSkipped("BUG: folderStatus() only looks at the first untagged line - an EXISTS sent before \"* STATUS\" makes it fail");
-
         $protocol = $this->connectedProtocol([
             self::step('STATUS "Archive" (MESSAGES)', [
                 "* 5 EXISTS",
@@ -261,8 +257,6 @@ class ImapProtocolMailboxTest extends ScriptedServerTestCase {
     }
 
     public function testFoldersUnescapesTheDelimiter(): void {
-        $this->markTestSkipped("BUG: folders() unescapes the folder name but not the quoted delimiter - \"\\\\\" stays two backslashes");
-
         $protocol = $this->connectedProtocol([
             self::step('LIST "" "*"', ['* LIST (\HasNoChildren) "\\\\" INBOX', "{tag} OK LIST completed"]),
         ]);

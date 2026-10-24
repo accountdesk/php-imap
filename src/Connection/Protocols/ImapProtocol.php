@@ -760,13 +760,27 @@ class ImapProtocol extends Protocol {
         $response = $this->requestAndResponse('STATUS', [$this->escapeString($folder), $this->escapeList($arguments)]);
         $data = $response->validatedData();
 
-        if (!isset($data[0]) || !isset($data[0][2])) {
+        // "* STATUS <mailbox> (<items>)" - other untagged responses (e.g. EXISTS for the selected mailbox,
+        // RFC 3501 7) may come before or after it
+        $items = null;
+        foreach ((array)$data as $line) {
+            if (is_array($line) && is_string($line[0] ?? null) && strtoupper($line[0]) === 'STATUS' && is_array($line[2] ?? null)) {
+                $items = $line[2];
+                break;
+            }
+        }
+        if ($items === null) {
             throw new RuntimeException("folder status could not be fetched");
         }
 
         $result = [];
         $key = null;
-        foreach ($data[0][2] as $value) {
+        foreach ($items as $value) {
+            if (is_array($value)) {
+                // no valid STATUS item value
+                $key = null;
+                continue;
+            }
             if ($key === null) {
                 $key = $value;
             } else {
@@ -1047,15 +1061,24 @@ class ImapProtocol extends Protocol {
         $result = [];
         if ($list[0] !== true) {
             foreach ($list as $item) {
-                if (count($item) != 4 || $item[0] != 'LIST') {
+                if (!is_array($item) || count($item) != 4 || $item[0] != 'LIST' || !is_string($item[2]) || !is_string($item[3])) {
                     continue;
                 }
-                $item[3] = str_replace("\\\\", "\\", str_replace("\\\"", "\"", $item[3]));
-                $result[$item[3]] = ['delimiter' => $item[2], 'flags' => $item[1]];
+                $result[$this->unescapeQuoted($item[3])] = ['delimiter' => $this->unescapeQuoted($item[2]), 'flags' => $item[1]];
             }
         }
 
         return $response->setResult($result);
+    }
+
+    /**
+     * Remove the escaping of a quoted string (RFC 3501 4.3: backslash escapes backslash and double quote)
+     * @param string $value
+     *
+     * @return string
+     */
+    protected function unescapeQuoted(string $value): string {
+        return preg_replace('/\\\\([\\\\"])/', '$1', $value);
     }
 
     /**
