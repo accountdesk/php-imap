@@ -87,7 +87,6 @@ class MaskTest extends TestCase {
     }
 
     public function testNullAttributesCanBeAccessed(): void {
-        $this->markTestSkipped("BUG: Mask::__call() uses isset(), getters/setters of attributes with a null value throw MethodNotFoundException");
         $mask = new Mask($this->parent());
 
         self::assertNull($mask->getEmpty());
