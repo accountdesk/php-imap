@@ -1,50 +1,209 @@
+# Tests in the same Docker setup as locally (CLAUDE.md, .claude/scripts):
+#  - unit: offline suite in the test image (tests/docker/php.Dockerfile, PHP 8.3 without ext-imap) with coverage,
+#          plus a PHP 8.0 syntax check (composer.json allows ^8.0.2)
+#  - imap: one check per IMAP server of the matrix in tests/servers - the complete live suite (tests/live incl.
+#          IdleLiveTest and ServerMatrixTest + live tests of tests/issues) against every target of the server
 name: Tests
 
 on:
   push:
   pull_request:
-  schedule:
-    - cron: '0 0 * * *'
 
 permissions:
   contents: read
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PHP_VERSION: "8.3"
+
 jobs:
-  phpunit:
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: true
-      matrix:
-        php: ['8.0', 8.1, 8.2, 8.3, 8.4]
-
-    name: PHP ${{ matrix.php }}
-
-    env:
-      LIVE_MAILBOX: true
-      LIVE_MAILBOX_DEBUG: true
-      LIVE_MAILBOX_HOST: mail.example.local
-      LIVE_MAILBOX_PORT: 993
-      LIVE_MAILBOX_USERNAME: root@example.local
-      LIVE_MAILBOX_ENCRYPTION: ssl
-      LIVE_MAILBOX_PASSWORD: foobar
-      LIVE_MAILBOX_QUOTA_SUPPORT: true
+  unit:
+    name: Unit tests (PHP 8.3, offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build test image
+        uses: docker/build-push-action@v7.4.0
         with:
-          php-version: ${{ matrix.php }}
-          extensions: openssl, json, mbstring, iconv, fileinfo, libxml, zip
-          coverage: none
+          context: tests/docker
+          file: tests/docker/php.Dockerfile
+          build-args: PHP_VERSION=${{ env.PHP_VERSION }}
+          tags: php-imap-test:${{ env.PHP_VERSION }}
+          load: true
+          cache-from: type=gha,scope=php-imap-test-${{ env.PHP_VERSION }}
+          cache-to: type=gha,mode=max,scope=php-imap-test-${{ env.PHP_VERSION }}
 
-      - name: Install Composer dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Cache vendor
+        uses: actions/cache@v6.1.0
+        with:
+          path: vendor
+          key: vendor-php${{ env.PHP_VERSION }}-${{ hashFiles('composer.json') }}
 
-      - run: "sh .github/docker/dovecot_setup.sh"
+      - name: Syntax check (PHP 8.0)
+        run: |
+          docker run --rm -v "$PWD":/app -w /app php:8.0-cli sh -c \
+            'find src tests -name "*.php" -print0 | xargs -0 -n1 php -l > /tmp/lint.txt 2>&1 || { grep -v "^No syntax errors" /tmp/lint.txt; exit 1; }'
 
-      - name: Execute tests
-        run: vendor/bin/phpunit
+      - name: PHPUnit
+        run: |
+          mkdir -p build
+          .claude/scripts/phpunit.sh --coverage --log-junit build/junit-unit.xml 2>&1 | tee build/unit.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          python3 .github/scripts/phpunit-summary.py "Unit tests (PHP $PHP_VERSION, offline)" \
+            unit=build/junit-unit.xml:build/unit.txt >> "$GITHUB_STEP_SUMMARY"
+          if [ -f build/coverage.txt ]; then
+            {
+              echo "#### Coverage"
+              echo '```'
+              sed -n '1,12p' build/coverage.txt | grep -E "Summary|Classes|Methods|Lines" | sed 's/\x1b\[[0-9;]*m//g'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: unit-reports
+          path: |
+            build/junit-unit.xml
+            build/unit.txt
+            build/coverage.txt
+            build/clover.xml
+            build/coverage/
+          if-no-files-found: warn
+
+  imap:
+    name: "IMAP: ${{ matrix.name }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Dovecot 2.3
+            server: dovecot23
+            targets: dovecot23 dovecot23-ssl
+          - name: Dovecot 2.4
+            server: dovecot24
+            targets: dovecot24 dovecot24-ssl
+          - name: GreenMail
+            server: greenmail
+            targets: greenmail
+          - name: Cyrus
+            server: cyrus
+            targets: cyrus
+            image: php-imap-servers-cyrus:3.6.1     # built from Debian (tests/servers/cyrus), layer-cached
+          - name: Stalwart
+            server: stalwart
+            targets: stalwart
+          - name: Apache James
+            server: james
+            targets: james
+          - name: Courier
+            server: courier
+            targets: courier
+            image: php-imap-servers-courier:5.0.13  # built from Debian (tests/servers/courier), layer-cached
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build test image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: tests/docker
+          file: tests/docker/php.Dockerfile
+          build-args: PHP_VERSION=${{ env.PHP_VERSION }}
+          tags: php-imap-test:${{ env.PHP_VERSION }}
+          load: true
+          cache-from: type=gha,scope=php-imap-test-${{ env.PHP_VERSION }}
+
+      - name: Build server image
+        if: matrix.image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: tests/servers/${{ matrix.server }}
+          tags: ${{ matrix.image }}
+          load: true
+          cache-from: type=gha,scope=imap-server-${{ matrix.server }}
+          cache-to: type=gha,mode=max,scope=imap-server-${{ matrix.server }}
+
+      - name: Cache vendor
+        uses: actions/cache@v6.1.0
+        with:
+          path: vendor
+          key: vendor-php${{ env.PHP_VERSION }}-${{ hashFiles('composer.json') }}
+
+      - name: Start ${{ matrix.name }}
+        env:
+          IMAP_SERVERS_BUILD: "0"   # images are pulled or were built above
+        run: .claude/scripts/imap-servers.sh up ${{ matrix.server }}
+
+      - name: Live tests
+        run: |
+          mkdir -p build
+          status=0
+          for target in ${{ matrix.targets }}; do
+            echo "::group::$target"
+            if ! .claude/scripts/imap-servers.sh live "$target" --log-junit "build/junit-$target.xml" 2>&1 | tee "build/live-$target.txt"; then
+              status=1
+            fi
+            echo "::endgroup::"
+            if [ ! -f "build/junit-$target.xml" ]; then
+              echo "::error title=$target::no JUnit report - the run aborted"
+            fi
+          done
+          exit $status
+
+      - name: Summary
+        if: always()
+        run: |
+          runs=""
+          for target in ${{ matrix.targets }}; do
+            runs="$runs $target=build/junit-$target.xml:build/live-$target.txt"
+          done
+          python3 .github/scripts/phpunit-summary.py "IMAP: ${{ matrix.name }}" $runs >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: imap-${{ matrix.server }}-reports
+          path: |
+            build/junit-*.xml
+            build/live-*.txt
+          if-no-files-found: warn
+
+      - name: Collect server logs
+        if: failure()
+        run: |
+          .claude/scripts/imap-servers.sh status > build/server-status.txt 2>&1 || true
+          .claude/scripts/imap-servers.sh logs > build/server-logs.txt 2>&1 || true
+
+      - name: Upload server logs
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: imap-${{ matrix.server }}-server-logs
+          path: |
+            build/server-status.txt
+            build/server-logs.txt
+          if-no-files-found: warn
