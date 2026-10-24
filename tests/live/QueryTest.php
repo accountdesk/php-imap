@@ -84,16 +84,7 @@ class QueryTest extends LiveMailboxTestCase {
      * @throws MessageSearchValidationException
      */
     public function testQueryWhere(): void {
-        $client = $this->getClient();
-
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'search']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder !== null) {
-            self::assertTrue($this->deleteFolder($folder));
-        }
-        $folder = $client->createFolder($folder_path, false);
+        $folder = $this->createTestFolder("php-imap-search");
 
         $messages = [
             $this->appendMessageTemplate($folder, '1366671050@github.com.eml'),
@@ -150,12 +141,59 @@ class QueryTest extends LiveMailboxTestCase {
         self::assertEquals(count($messages), $query->count());
 
         $query = $folder->query()->whereSubject("test");
-        self::assertEquals(11, $query->count());
+        if ($this->supports("search_subject_envelope_only")) {
+            self::assertEquals(11, $query->count());
+        } else {
+            // the server also matches the subject of attached messages (example_bounce.eml)
+            self::assertGreaterThanOrEqual(11, $query->count());
+        }
+    }
 
-        $query = $folder->query()->whereOn(Carbon::now());
-        self::assertEquals(count($messages), $query->count());
+    /**
+     * Search by internal date: SINCE / BEFORE
+     *
+     * @return void
+     * @throws \Throwable
+     */
+    public function testQueryWhereSince(): void {
+        $this->requiresCapability("search_quoted_date", "WhereQuery sends dates as quoted strings");
+        $folder = $this->createDatedMessages("php-imap-search-since");
 
-        self::assertTrue($this->deleteFolder($folder));
+        self::assertEquals(2, $folder->query()->whereSince(Carbon::now()->subDay())->count());
+        self::assertEquals(1, $folder->query()->whereBefore(Carbon::now()->subDay())->count());
+    }
+
+    /**
+     * Search by internal date: ON
+     *
+     * @return void
+     * @throws \Throwable
+     */
+    public function testQueryWhereOn(): void {
+        $this->requiresCapability("search_quoted_date", "WhereQuery sends dates as quoted strings");
+        $this->requiresCapability("search_on_date", "SEARCH ON <date> has to match the internal date");
+        $folder = $this->createDatedMessages("php-imap-search-on");
+
+        self::assertEquals(2, $folder->query()->whereOn(Carbon::now())->count());
+        self::assertEquals(1, $folder->query()->whereOn(Carbon::create(2020, 6, 15))->count());
+    }
+
+    /**
+     * New test folder with two messages of today and one of 2020-06-15 (internal dates set explicitly: without
+     * a date the internal date is "now" on most servers, but Stalwart takes it from the first Received header)
+     * @param string $prefix
+     *
+     * @return Folder
+     * @throws \Throwable
+     */
+    protected function createDatedMessages(string $prefix): Folder {
+        $folder = $this->createTestFolder($prefix);
+        $folder->appendMessage($this->loadMessageTemplate('plain.eml'), null, Carbon::now());
+        $folder->appendMessage($this->loadMessageTemplate('example_attachment.eml'), null, Carbon::now());
+        $folder->appendMessage($this->loadMessageTemplate('plain_only.eml'), null, Carbon::create(2020, 6, 15, 12, 0, 0, "UTC"));
+        self::assertEquals(3, $folder->query()->all()->count());
+
+        return $folder;
     }
 
     /**

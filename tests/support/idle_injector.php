@@ -10,8 +10,9 @@
 *
 *  Usage: php idle_injector.php <job.json> <log_file>
 *  job.json: {"account": {...ClientManager account...}, "folder": "INBOX/x", "toxiproxy": "http://...",
-*             "proxy": "dovecot23", "actions": [{"at": 2.0, "do": "append", "subject": "a"}, ...]}
-*  Actions ("at" = seconds after start):
+*             "proxy": "dovecot23", "ready_file": "/tmp/x", "actions": [{"at": 2.0, "do": "append", "subject": "a"}, ...]}
+*  The injector logs in first, then writes "ready" to ready_file and starts the timeline.
+*  Actions ("at" = seconds after the timeline started):
 *   append        subject                 APPEND a message
 *   delete        subject                 flag \Deleted + EXPUNGE the message with this subject
 *   flag          subject, flag="Seen"    set a flag
@@ -49,6 +50,17 @@ $find = function (string $subject) use ($folder) {
     }
     throw new RuntimeException("message \"$subject\" not found");
 };
+
+// connect before the timeline starts and tell the test (which starts idle() only then): on slow machines
+// (CI runners) start-up and login would otherwise shift every action towards the end of the idle runtime
+try {
+    $folder();
+} catch (Throwable $e) {
+    $log(["at" => 0, "do" => "connect", "subject" => null, "ok" => false, "error" => $e->getMessage()]);
+}
+if (!empty($job["ready_file"])) {
+    file_put_contents($job["ready_file"], "ready");
+}
 
 $start = microtime(true);
 $actions = $job["actions"];

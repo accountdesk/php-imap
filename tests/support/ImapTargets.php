@@ -43,7 +43,37 @@ final class ImapTargets {
         "proxy"          => null,
         "delimiter"      => null,
         "quota"          => false,
+        "capabilities"   => [],
         "notes"          => "",
+    ];
+
+    /**
+     * Server capabilities the live tests check with ImapTargets::supports() (LiveMailboxTestCase::requiresCapability()),
+     * with the default for targets that do not list them: a target only names what differs. A test whose
+     * capability is missing skips with the reason - tests never skip a whole server.
+     */
+    public const CAPABILITIES = [
+        // ID command (rfc2971)
+        "id"                            => true,
+        // \HasChildren / \HasNoChildren attributes in LIST responses (rfc3348)
+        "children"                      => true,
+        // GETQUOTAROOT the way tests/live/ClientTest expects (quota root of INBOX with a storage limit)
+        "quota"                         => false,
+        // SELECT / EXAMINE report UIDNEXT (required by rfc3501)
+        "uidnext_in_select"             => true,
+        // SEARCH ON <today> matches messages appended today (internal date)
+        "search_on_date"                => true,
+        // SEARCH accepts dates as quoted strings (rfc3501: date = date-text / DQUOTE date-text DQUOTE)
+        "search_quoted_date"            => true,
+        // SEARCH HEADER <field> <string> matches substrings (rfc3501) also in Message-ID / In-Reply-To
+        "search_header_substring"       => true,
+        // SEARCH SUBJECT only looks at the subject of the message itself (rfc3501: envelope), not at attached messages
+        "search_subject_envelope_only"  => true,
+        // LIST patterns with a wildcard before the last character ("x.%%" - Client::getFolders() appends % to
+        // the parent it is given, also when it recurses into children)
+        "list_inner_wildcard"           => true,
+        // folder names containing LiveMailboxTestCase::SPECIAL_CHARS (\ " % | ! < > umlauts, CJK, ...)
+        "special_chars_in_folder_names" => true,
     ];
 
     /**
@@ -96,6 +126,23 @@ final class ImapTargets {
     }
 
     /**
+     * Check whether a target has a capability (see ImapTargets::CAPABILITIES)
+     * @param string $name target name
+     * @param string $capability
+     *
+     * @return bool
+     * @throws InvalidArgumentException for unknown targets or capabilities (a typo must not silently skip tests)
+     */
+    public static function supports(string $name, string $capability): bool {
+        if (!array_key_exists($capability, self::CAPABILITIES)) {
+            throw new InvalidArgumentException(sprintf(
+                "Unknown capability '%s' (known: %s)", $capability, implode(", ", array_keys(self::CAPABILITIES))
+            ));
+        }
+        return (bool)(self::get($name)["capabilities"][$capability] ?? self::CAPABILITIES[$capability]);
+    }
+
+    /**
      * Get the ClientManager account configuration of a target (the value of "accounts" => ["x" => ...])
      * @param string $name
      * @param bool $via_proxy connect through the target's Toxiproxy proxy instead of directly
@@ -139,7 +186,13 @@ final class ImapTargets {
             if (is_file($dir . "targets.local.php")) {
                 $targets = array_merge($targets, require $dir . "targets.local.php");
             }
-            self::$targets = array_map(static fn(array $target) => array_merge(self::DEFAULTS, $target), $targets);
+            self::$targets = array_map(static function(array $target): array {
+                $target = array_merge(self::DEFAULTS, $target);
+                // "quota" predates the capability list and is kept for targets.local.php files
+                $target["capabilities"] += ["quota" => (bool)$target["quota"]];
+                $target["quota"] = (bool)$target["capabilities"]["quota"];
+                return $target;
+            }, $targets);
         }
         return self::$targets;
     }

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  PHPUnit configuration for running the live suites (tests/live + tests/issues) against one target of the
-  server matrix; used by ".claude/scripts/imap-servers.sh live <target>", which sets the LIVE_MAILBOX_*
-  variables from tests/servers/targets.php. Paths are relative to this file.
+  PHPUnit configuration for running the live suites (tests/live + the live tests of tests/issues) against one
+  target of the server matrix; used by ".claude/scripts/imap-servers.sh live <target>", which sets the
+  LIVE_MAILBOX_* variables from tests/servers/targets.php. Paths are relative to this file.
+  Only issue tests extending LiveMailboxTestCase are listed - the offline ones run in the normal suite.
 -->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" bootstrap="../../vendor/autoload.php" backupGlobals="false" backupStaticAttributes="false" colors="true" verbose="true" convertErrorsToExceptions="true" convertNoticesToExceptions="true" convertWarningsToExceptions="true" processIsolation="false" stopOnFailure="false" cacheResult="false" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd">
   <coverage>
@@ -13,7 +14,11 @@
   <testsuites>
     <testsuite name="live">
       <directory>../live</directory>
-      <directory>../issues</directory>
+      <file>../issues/Issue379Test.php</file>
+      <file>../issues/Issue383Test.php</file>
+      <file>../issues/Issue393Test.php</file>
+      <file>../issues/Issue407Test.php</file>
+      <file>../issues/Issue413Test.php</file>
     </testsuite>
   </testsuites>
 </phpunit>

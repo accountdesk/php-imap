@@ -37,6 +37,8 @@ class IdleLiveTest extends TestCase {
 
     protected string $log_file = "";
 
+    protected string $ready_file = "";
+
     /**
      * Targets enabled via IMAP_TARGETS - a placeholder keeps the data provider from being empty
      *
@@ -75,7 +77,7 @@ class IdleLiveTest extends TestCase {
             }
             $this->client = null;
         }
-        foreach ([$this->job_file, $this->log_file] as $file) {
+        foreach ([$this->job_file, $this->log_file, $this->ready_file] as $file) {
             if ($file !== "" && file_exists($file)) {
                 unlink($file);
             }
@@ -131,24 +133,35 @@ class IdleLiveTest extends TestCase {
     }
 
     /**
-     * Start the injector with a timeline (see support/idle_injector.php). It always works on a direct
-     * connection, so network faults only hit the idle client.
+     * Start the injector with a timeline (see support/idle_injector.php) and wait until it is logged in - the
+     * timeline starts then, right before the test calls idle(). It always works on a direct connection, so
+     * network faults only hit the idle client.
      * @param string $target
      * @param array $actions
      */
     protected function startInjector(string $target, array $actions): void {
         $this->job_file = tempnam(sys_get_temp_dir(), "php-imap-injector-job-");
         $this->log_file = tempnam(sys_get_temp_dir(), "php-imap-injector-log-");
+        $this->ready_file = tempnam(sys_get_temp_dir(), "php-imap-injector-ready-");
         file_put_contents($this->job_file, json_encode([
-            "account"   => ImapTargets::account($target),
-            "folder"    => $this->folder_path,
-            "toxiproxy" => Toxiproxy::available() ? (getenv("TOXIPROXY_API") ?: null) : null,
-            "proxy"     => ImapTargets::get($target)["proxy"]["name"] ?? null,
-            "actions"   => $actions,
+            "account"    => ImapTargets::account($target),
+            "folder"     => $this->folder_path,
+            "toxiproxy"  => Toxiproxy::available() ? (getenv("TOXIPROXY_API") ?: null) : null,
+            "proxy"      => ImapTargets::get($target)["proxy"]["name"] ?? null,
+            "ready_file" => $this->ready_file,
+            "actions"    => $actions,
         ]));
         $command = [PHP_BINARY, dirname(__DIR__) . "/support/idle_injector.php", $this->job_file, $this->log_file];
         $this->injector = proc_open($command, [1 => ["file", "php://stderr", "w"], 2 => ["file", "php://stderr", "w"]], $pipes);
         self::assertIsResource($this->injector, "injector could not be started");
+
+        $deadline = microtime(true) + 30;
+        while (file_get_contents($this->ready_file) !== "ready") {
+            if (!proc_get_status($this->injector)["running"] || microtime(true) > $deadline) {
+                self::fail("injector did not get ready: " . file_get_contents($this->log_file));
+            }
+            usleep(20000);
+        }
     }
 
     /**
