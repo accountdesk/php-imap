@@ -321,8 +321,6 @@ class ImapProtocolCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testAuthenticateXoauth2AnswersContinuationWithEmptyLine(): void {
-        $this->markTestSkipped("BUG: authenticate() answers a SASL continuation with \"TAGn \" (a new tag) instead of an empty line (RFC 3501 6.2.2 / RFC 4959)");
-
         $error = base64_encode('{"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}');
         $protocol = $this->connectedProtocol([
             self::step("/^TAG1 AUTHENTICATE XOAUTH2 \\S+$/", ["+ $error"]),
@@ -330,6 +328,24 @@ class ImapProtocolCommandsTest extends ScriptedServerTestCase {
         ]);
 
         $protocol->authenticate("user@gmail.com", "invalid");
+        $this->assertScriptCompleted();
+    }
+
+    /**
+     * An untagged "* OK" (RFC 3501 7.1, e.g. [ALERT]) does not complete AUTHENTICATE - the tagged NO does
+     */
+    public function testAuthenticateIgnoresUntaggedOk(): void {
+        $protocol = $this->connectedProtocol([
+            self::step("/^TAG1 AUTHENTICATE XOAUTH2 \\S+$/", [
+                "* OK [ALERT] System shutdown in 10 minutes",
+                "{tag} NO [AUTHENTICATIONFAILED] Authentication failed.",
+            ]),
+        ]);
+
+        $response = $protocol->authenticate("user", "token");
+
+        self::assertTrue($response->failed());
+        self::assertStringContainsString("[AUTHENTICATIONFAILED]", $response->getErrors()[0]);
         $this->assertScriptCompleted();
     }
 

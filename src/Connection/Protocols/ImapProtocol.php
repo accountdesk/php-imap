@@ -592,24 +592,26 @@ class ImapProtocol extends Protocol {
     public function authenticate(string $user, string $token): Response {
         try {
             $authenticateParams = ['XOAUTH2', base64_encode("user=$user\1auth=Bearer $token\1\1")];
-            $response = $this->sendRequest('AUTHENTICATE', $authenticateParams);
+            $response = $this->sendRequest('AUTHENTICATE', $authenticateParams, $request_tag);
 
             while (true) {
-                $tokens = "";
-                $is_plus = $this->readLine($response, $tokens, '+', true);
-                if ($is_plus) {
+                $tag = null;
+                $tokens = $this->nextTaggedLine($response, $tag);
+                if ($tag === '+') {
                     // try to log the challenge somewhere where it can be found
                     error_log("got an extra server challenge: $tokens");
-                    // respond with an empty response.
-                    $response->stack($this->sendRequest(''));
+                    // RFC 4959 / RFC 3501 6.2.2: answer the challenge (an error for XOAUTH2) with an empty
+                    // line - the server then completes the command with a tagged NO
+                    $this->write($response, '');
+                } elseif ($tag !== $request_tag) {
+                    // untagged data (e.g. "* CAPABILITY ...") - an untagged "* OK" is no completion either
+                    continue;
+                } elseif (preg_match("/^OK\\b/i", $tokens)) {
+                    return $response->setResult([$tokens]);
                 } else {
-                    if (preg_match('/^NO /i', $tokens) ||
-                        preg_match('/^BAD /i', $tokens)) {
-                        error_log("got failure response: $tokens");
-                        return $response->addError("got failure response: $tokens");
-                    } else if (preg_match("/^OK /i", $tokens)) {
-                        return $response->setResult(is_array($tokens) ? $tokens : [$tokens]);
-                    }
+                    // NO, BAD or anything else completes the command as a failure
+                    error_log("got failure response: $tokens");
+                    return $response->addError("got failure response: $tokens");
                 }
             }
         } catch (RuntimeException $e) {
