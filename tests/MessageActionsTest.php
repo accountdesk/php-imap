@@ -224,6 +224,30 @@ class MessageActionsTest extends TestCase {
         self::assertTrue($message->delete(false, null, true));
     }
 
+    /**
+     * The target is selected / examined by its modified UTF-7 path (RFC 3501 5.1.3), not the UTF-8 name
+     */
+    public function testCopyAndMoveEncodeTheTargetFolder(): void {
+        $message = $this->message();
+        $selected = [];
+        $this->protocol = $this->createMock(ImapProtocol::class);
+        $this->protocol->method('connected')->willReturn(true);
+        $this->protocol->method('selectFolder')->willReturnCallback(function($folder) use (&$selected) {
+            $selected[] = $folder;
+            return Response::empty()->setResult(["exists" => 1]);
+        });
+        $this->protocol->expects($this->exactly(3))->method('examineFolder')
+            ->withConsecutive(["&AMQ-rger"], ["&AMQ-rger"], ["Archive/&AMQ-rger"])
+            ->willReturn(Response::empty()->setResult(["uidnext" => 0]));
+        $this->client->connection = $this->protocol;
+
+        self::assertNull($message->copy("Ärger"));
+        self::assertNull($message->move("Ärger"));
+        // already encoded
+        self::assertNull($message->move("Archive/&AMQ-rger", false, true));
+        self::assertSame(["&AMQ-rger", "Archive/&AMQ-rger"], array_values(array_unique(array_filter($selected, fn($f) => $f !== "INBOX"))));
+    }
+
     public function testCopyAndMoveWithoutUidNext(): void {
         $message = $this->message();
         $this->protocol->method('examineFolder')->willReturnOnConsecutiveCalls(

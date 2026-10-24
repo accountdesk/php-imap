@@ -1030,6 +1030,8 @@ class Message {
      * @throws ResponseException
      */
     public function copy(string $folder_path, bool $expunge = false, bool $utf7 = false): ?Message {
+        // the server knows the folder by its modified UTF-7 path (RFC 3501 5.1.3)
+        if (!$utf7) $folder_path = EncodingAliases::convert($folder_path, "utf-8", "UTF7-IMAP");
         $this->client->openFolder($folder_path);
         $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
 
@@ -1040,7 +1042,7 @@ class Message {
             }
 
             /** @var Folder $folder */
-            $folder = $this->client->getFolderByPath($folder_path, $utf7);
+            $folder = $this->client->getFolderByPath($folder_path, true);
 
             $this->client->openFolder($this->folder_path);
             if ($this->client->getConnection()->copyMessage($folder->path, $this->getSequenceId(), null, $this->sequence)->validatedData()) {
@@ -1073,6 +1075,8 @@ class Message {
      * @throws ResponseException
      */
     public function move(string $folder_path, bool $expunge = false, bool $utf7 = false): ?Message {
+        // the server knows the folder by its modified UTF-7 path (RFC 3501 5.1.3)
+        if (!$utf7) $folder_path = EncodingAliases::convert($folder_path, "utf-8", "UTF7-IMAP");
         $this->client->openFolder($folder_path);
         $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
 
@@ -1083,7 +1087,7 @@ class Message {
             }
 
             /** @var Folder $folder */
-            $folder = $this->client->getFolderByPath($folder_path, $utf7);
+            $folder = $this->client->getFolderByPath($folder_path, true);
 
             $this->client->openFolder($this->folder_path);
             if ($this->client->getConnection()->moveMessage($folder->path, $this->getSequenceId(), null, $this->sequence)->validatedData()) {
