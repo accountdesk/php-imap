@@ -39,6 +39,8 @@ class PR621Test extends TestCase
         // and disconnect() resets active_folder to null.
         $ref = new ReflectionClass($client);
         $prop = $ref->getProperty('active_folder');
+        // PHP 8.0 only allows access to non-public properties after setAccessible() (no longer needed since 8.1)
+        $prop->setAccessible(true);
         $prop->setValue($client, null);
 
         return $client;
