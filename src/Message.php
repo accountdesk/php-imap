@@ -329,7 +329,7 @@ class Message {
      * @throws RuntimeException
      */
     public static function fromFile(string $filename, ?Config $config = null): Message {
-        $blob = file_get_contents($filename);
+        $blob = @file_get_contents($filename);
         if ($blob === false) {
             throw new RuntimeException("Unable to read file");
         }
