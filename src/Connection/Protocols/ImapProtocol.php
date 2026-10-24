@@ -427,9 +427,10 @@ class ImapProtocol extends Protocol {
 
 
         // last line has response code
-        if ($tokens[0] == 'OK') {
+        $status = is_string($tokens[0] ?? null) ? $tokens[0] : '';
+        if ($status == 'OK') {
             return $lines ?: [true];
-        } elseif ($tokens[0] == 'NO' || $tokens[0] == 'BAD' || $tokens[0] == 'BYE') {
+        } elseif ($status == 'NO' || $status == 'BAD' || $status == 'BYE') {
             throw new ImapServerErrorException($this->stringifyArray($original));
         }
 
@@ -712,24 +713,25 @@ class ImapProtocol extends Protocol {
         $result = [];
         $tokens = []; // define $tokens variable before first use
         while (!$this->readLine($response, $tokens, $tag)) {
-            if ($tokens[0] == 'FLAGS') {
+            if (($tokens[0] ?? null) === 'FLAGS') {
                 array_shift($tokens);
                 $result['flags'] = $tokens;
                 continue;
             }
-            switch ($tokens[1]) {
+            $value = $tokens[2] ?? null;
+            switch ($tokens[1] ?? null) {
                 case 'EXISTS':
                 case 'RECENT':
-                    $result[strtolower($tokens[1])] = (int)$tokens[0];
+                    $result[strtolower($tokens[1])] = is_string($tokens[0]) ? (int)$tokens[0] : 0;
                     break;
                 case '[UIDVALIDITY':
-                    $result['uidvalidity'] = (int)$tokens[2];
+                    $result['uidvalidity'] = is_string($value) ? (int)$value : 0;
                     break;
                 case '[UIDNEXT':
-                    $result['uidnext'] = (int)$tokens[2];
+                    $result['uidnext'] = is_string($value) ? (int)$value : 0;
                     break;
                 case '[UNSEEN':
-                    $result['unseen'] = (int)$tokens[2];
+                    $result['unseen'] = is_string($value) ? (int)$value : 0;
                     break;
                 case '[NONEXISTENT]':
                     throw new RuntimeException("folder doesn't exist");
@@ -741,7 +743,7 @@ class ImapProtocol extends Protocol {
 
         $response->setResult($result);
 
-        if ($tokens[0] != 'OK') {
+        if (($tokens[0] ?? null) !== 'OK') {
             $response->addError("request failed");
         }
         return $response;
@@ -856,94 +858,85 @@ class ImapProtocol extends Protocol {
         $response = $this->sendRequest($this->buildUIDCommand("FETCH", $uid), [$set, $itemList], $tag);
         $result = [];
         $tokens = []; // define $tokens variable before first use
+        $itemMatches = static function($actual, $expected): bool {
+            if (!is_string($actual)) {
+                return false;
+            }
+            $actualNorm = strtoupper($actual);
+            $expectedNorm = strtoupper((string) $expected);
+            if ($actualNorm === $expectedNorm) {
+                return true;
+            }
+            // IMAP may answer BODY[...] even when request used BODY.PEEK[...].
+            return str_replace('.PEEK', '', $actualNorm) === str_replace('.PEEK', '', $expectedNorm);
+        };
         while (!$this->readLine($response, $tokens, $tag)) {
-            // ignore other responses
-            if ($tokens[1] != 'FETCH') {
+            // ignore other responses - and FETCH responses without a valid item list
+            // ("* <number> FETCH (<item> <value> ...)", RFC 3501 7.4.2)
+            if (($tokens[1] ?? null) !== 'FETCH' || !is_array($tokens[2] ?? null) || !is_string($tokens[0] ?? null)) {
                 continue;
             }
+            $values = array_values($tokens[2]);
+            $count = count($values);
 
-            $uidKey = 0;
+            $id = $tokens[0];
             $data = [];
 
-            // find array key of UID value; try the last elements, or search for it
+            // find the UID value; try the last elements, or search for it
             if ($uid === IMAP::ST_UID) {
-                $count = count($tokens[2]);
-                if ($tokens[2][$count - 2] == 'UID') {
+                $uidKey = null;
+                if ($count >= 2 && $values[$count - 2] === 'UID') {
                     $uidKey = $count - 1;
-                } else if ($tokens[2][0] == 'UID') {
-                    $uidKey = 1;
                 } else {
-                    $found = array_search('UID', $tokens[2]);
-                    if ($found === false || $found === -1) {
-                        continue;
+                    for ($i = 0; $i + 1 < $count; $i += 2) {
+                        if ($values[$i] === 'UID') {
+                            $uidKey = $i + 1;
+                            break;
+                        }
                     }
-
-                    $uidKey = $found + 1;
                 }
+                if ($uidKey === null || !is_string($values[$uidKey])) {
+                    continue;
+                }
+                $id = $values[$uidKey];
             }
 
             // ignore other messages
-            if ($to === null && !is_array($from) && ($uid === IMAP::ST_UID ? $tokens[2][$uidKey] != $from : $tokens[0] != $from)) {
+            if ($to === null && !is_array($from) && $id != $from) {
                 continue;
             }
 
-            // if we only want one item we return that one directly
             if (count($items) == 1) {
-                $expectedItem = (string) $items[0];
-                $itemMatches = static function($actual, $expected): bool {
-                    $actualNorm = strtoupper((string) $actual);
-                    $expectedNorm = strtoupper((string) $expected);
-                    if ($actualNorm === $expectedNorm) {
-                        return true;
-                    }
-                    // IMAP may answer BODY[...] even when request used BODY.PEEK[...].
-                    if (str_replace('.PEEK', '', $actualNorm) === str_replace('.PEEK', '', $expectedNorm)) {
-                        return true;
-                    }
-                    return false;
-                };
-
-                if ($itemMatches($tokens[2][0] ?? '', $expectedItem)) {
-                    $data = $tokens[2][1];
-                } elseif ($uid === IMAP::ST_UID && $itemMatches($tokens[2][2] ?? '', $expectedItem)) {
-                    $data = $tokens[2][3];
-                } else {
-                    $expectedResponse = 0;
-                    // maybe the server send another field we didn't wanted
-                    $count = count($tokens[2]);
-                    // we start with 2, because 0 was already checked
-                    for ($i = 2; $i < $count; $i += 2) {
-                        if (!$itemMatches($tokens[2][$i] ?? '', $expectedItem)) {
-                            continue;
-                        }
-                        $data = $tokens[2][$i + 1];
-                        $expectedResponse = 1;
+                // if we only want one item we return that one directly
+                $found = false;
+                // the server may send other fields as well
+                for ($i = 0; $i + 1 < $count; $i += 2) {
+                    if ($itemMatches($values[$i], $items[0])) {
+                        $data = $values[$i + 1];
+                        $found = true;
                         break;
                     }
-                    if (!$expectedResponse) {
-                        continue;
-                    }
+                }
+                if (!$found) {
+                    continue;
                 }
             } else {
-                while (key($tokens[2]) !== null) {
-                    $data[current($tokens[2])] = next($tokens[2]);
-                    next($tokens[2]);
+                for ($i = 0; $i + 1 < $count; $i += 2) {
+                    if (is_string($values[$i])) {
+                        $data[$values[$i]] = $values[$i + 1];
+                    }
                 }
             }
 
             // if we want only one message we can ignore everything else and just return
-            if ($to === null && !is_array($from) && ($uid === IMAP::ST_UID ? $tokens[2][$uidKey] == $from : $tokens[0] == $from)) {
+            if ($to === null && !is_array($from)) {
                 // we still need to read all lines up to the tagged status line
                 while (!$this->readLine($response, $tokens, $tag)) {
                     // skip the remaining lines
                 }
                 return $response->setResult($data);
             }
-            if ($uid === IMAP::ST_UID) {
-                $result[$tokens[2][$uidKey]] = $data;
-            } else {
-                $result[$tokens[0]] = $data;
-            }
+            $result[$id] = $data;
         }
 
         if ($to === null && !is_array($from)) {
