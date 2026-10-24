@@ -104,14 +104,14 @@ class ImapProtocol extends Protocol {
      * Check if the current session is connected
      *
      * @return bool
-     * @throws ImapBadRequestException
      */
     public function connected(): bool {
         if ((bool)$this->stream) {
             try {
                 $this->requestAndResponse('NOOP');
                 return true;
-            } catch (ImapServerErrorException|RuntimeException) {
+            } catch (ImapServerErrorException|ImapBadRequestException|RuntimeException) {
+                // NO / BAD / BYE, an answer that is no IMAP status or a lost connection
                 return false;
             }
         }

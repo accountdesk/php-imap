@@ -138,6 +138,71 @@ class ClientServerTest extends ScriptedServerTestCase {
         $this->assertScriptCompleted();
     }
 
+    /**
+     * A NOOP answered with something that is no IMAP status means the connection is unusable - not an
+     * exception from isConnected() / checkConnection()
+     */
+    public function testCheckConnectionReconnectsAfterAGarbageNoopAnswer(): void {
+        $port = $this->startServer([
+            ["steps" => [
+                self::loginStep(),
+                self::noopStep(),
+                self::step('SELECT "INBOX"', ["* 1 EXISTS", "{tag} OK [READ-WRITE] Select completed."]),
+                // checkConnection() and the disconnect() of the reconnect
+                self::step("NOOP", ["{tag} WHAT? Unknown status"]),
+                self::step("NOOP", ["{tag} WHAT? Unknown status"]),
+            ]],
+            self::session([self::step('SELECT "INBOX"', ["* 1 EXISTS", "{tag} OK [READ-WRITE] Select completed."])]),
+        ]);
+        $client = $this->client($port)->connect();
+        $client->openFolder("INBOX");
+
+        self::assertTrue($client->checkConnection(), "a new connection was made");
+        // the folder was selected again on the new connection
+        self::assertSame("INBOX", $client->getActiveFolder());
+        $this->assertScriptCompleted();
+    }
+
+    /**
+     * checkConnection() retries a failing reconnect once (e.g. the server was restarting)
+     */
+    public function testCheckConnectionRetriesAFailedReconnectOnce(): void {
+        $port = $this->startServer([
+            ["steps" => [self::loginStep()], "auto" => [self::step("NOOP", ["{tag} NO [UNAVAILABLE] Server going down."])]],
+            ["greeting" => "* BYE Server is restarting", "close_after_greeting" => true],
+            self::session([]),
+        ]);
+        $client = $this->client($port)->connect();
+
+        self::assertFalse($client->checkConnection(), "the retry is reported like an existing connection");
+        self::assertTrue($client->isConnected());
+        $this->assertScriptCompleted();
+    }
+
+    public function testMaskConfiguration(): void {
+        $port = self::unusedPort();
+        self::assertSame(\Webklex\PHPIMAP\Support\Masks\MessageMask::class, $this->client($port)->getDefaultMessageMask());
+
+        foreach (["message", "attachment"] as $section) {
+            try {
+                new Client(\Webklex\PHPIMAP\Config::make(["masks" => [$section => "Not\\Existing\\Mask"]]));
+                self::fail("MaskNotFoundException expected for $section");
+            } catch (\Webklex\PHPIMAP\Exceptions\MaskNotFoundException $e) {
+                self::assertStringContainsString("Not\\Existing\\Mask", $e->getMessage());
+            }
+        }
+
+        $client = $this->client($port);
+        foreach (["setDefaultMessageMask", "setDefaultAttachmentMask"] as $setter) {
+            try {
+                $client->$setter("Not\\Existing\\Mask");
+                self::fail("MaskNotFoundException expected for $setter");
+            } catch (\Webklex\PHPIMAP\Exceptions\MaskNotFoundException) {
+            }
+        }
+        self::assertSame($client, $client->setDefaultAttachmentMask(\Webklex\PHPIMAP\Support\Masks\AttachmentMask::class));
+    }
+
     public function testReconnect(): void {
         $port = $this->startServer([self::session([]), self::session([])]);
         $client = $this->client($port)->connect();
