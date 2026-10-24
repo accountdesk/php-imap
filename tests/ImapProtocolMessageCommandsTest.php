@@ -634,10 +634,8 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testGetUidOfAnUnknownMessageNumberStops(): void {
-        $this->markTestSkipped("BUG: getUid() with an unknown message number refetches the uids in an endless recursion while the cache is enabled");
-
         $protocol = $this->connectedProtocol([
-            self::step("UID FETCH 1:* (UID)", ["* 1 FETCH (UID 4)", "{tag} OK Fetch completed."]),
+            // a freshly fetched list is not fetched again
             self::step("UID FETCH 1:* (UID)", ["* 1 FETCH (UID 4)", "{tag} OK Fetch completed."]),
         ]);
 

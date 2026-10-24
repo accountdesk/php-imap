@@ -982,7 +982,9 @@ class ImapProtocol extends Protocol {
      * @throws MessageNotFoundException
      */
     public function getUid(?int $id = null): Response {
+        $fetched = false;
         if (!$this->enable_uid_cache || empty($this->uid_cache) || count($this->uid_cache) <= 0) {
+            $fetched = true;
             try {
                 $this->setUidCache((array)$this->fetch('UID', 1, INF)->data()); // set cache for this folder
             } catch (RuntimeException) {
@@ -1000,8 +1002,8 @@ class ImapProtocol extends Protocol {
             }
         }
 
-        // clear uid cache and run method again
-        if ($this->enable_uid_cache && $this->uid_cache) {
+        // the cache may be outdated: clear it and run the method again (once - a freshly fetched list is final)
+        if ($this->enable_uid_cache && $this->uid_cache && !$fetched) {
             $this->setUidCache(null);
             return $this->getUid($id);
         }
