@@ -307,8 +307,8 @@ abstract class LiveMailboxTestCase extends TestCase {
         $connection = $message->getClient()->getConnection();
         $message->getFolder()->select();
         // the whole message - RFC822.HEADER is not reliable (GreenMail omits the empty line ending the header)
-        $raw = $connection->fetch(["BODY.PEEK[]"], (int)$message->uid, null, IMAP::ST_UID)->validatedData();
-        $stored = strlen(is_array($raw) ? (string)reset($raw) : (string)$raw);
+        $raw = $connection->fetch(["BODY.PEEK[]"], [(int)$message->uid], null, IMAP::ST_UID)->validatedData();
+        $stored = strlen((string)($raw[$message->uid] ?? ""));
 
         self::assertEquals($stored, $message->getSize(), "RFC822.SIZE differs from the size of the fetched message");
         self::assertGreaterThanOrEqual(
