@@ -21,6 +21,10 @@ nutzt vor allem `Folder::idle()` für die Mail-Überwachung.
 - Releases sind **vierstellige Tags** auf `accountdesk`: `6.2.0.N` (zuletzt `6.2.0.9`). Ein neues Tag ist nötig,
   damit `composer update webklex/php-imap` in `../accountdesk` die Änderung holt.
 - Push, Merge in `accountdesk` und Tags nur nach Rückfrage – sie landen direkt in der Produktion von AccountDesk.
+- ⚠️ **Beim Neuaufbau von `accountdesk` keine Commits verlieren**: Für `6.2.0.4` wurde der Branch neu auf upstream
+  aufgebaut, dabei fielen 16 Fixes aus `6.2.0.2`/`6.2.0.3` weg (u. a. PEEK beim Body-Abruf, #531, MIME ohne
+  ext-imap, b6a0074) – wiederhergestellt auf `feat/idle-test-matrix` (2026-10-24). Vorher immer
+  `git cherry -v <neuer Stand> <alter Release-Tag>` prüfen: jede `+`-Zeile fehlt im neuen Stand.
 
 ## Struktur
 
@@ -47,9 +51,10 @@ Lokal ist **kein PHP** installiert. Alles läuft in Docker, im Test-Image `php-i
 .claude/scripts/phpunit.sh --coverage                       # + build/coverage.txt, HTML in build/coverage/
 PHP_VERSION=8.0 .claude/scripts/phpunit.sh                  # andere PHP-Version
 ```
-- **Bekannte Fehlschläge (Baseline, Stand 2026-10-24)**: Gesamtlauf **1 Error, 19 Failures** (`HeaderTest` 1,
-  `tests/fixtures` 14, `tests/issues` 5 + 1 Error). Ursache meist fehlendes ext-imap (MIME-Encoded-Words im
-  Header, Fix auf `origin/fix/mime-header-decode-without-ext-imap`). Alles darüber hinaus ist eine Regression.
+- **Bekannte Fehlschläge (Baseline, Stand 2026-10-24)**: Gesamtlauf **1 Error, 9 Failures** – `HeaderTest`
+  (Attributanzahl), `tests/fixtures` EmailAddress, KsC56011987Headers, References, UndefinedCharsetHeader,
+  UndisclosedRecipients (3×), `Issue420`, `Issue382` (Error). Alle hängen am fehlenden ext-imap. Alles darüber
+  hinaus ist eine Regression.
 - **Übersprungene `BUG:`-Tests** dokumentieren bekannte Library-Bugs (`grep -rn '"BUG:' tests`): Test prüft das
   korrekte Verhalten, steht auf `markTestSkipped("BUG: …")`. Wer den Bug behebt, entfernt das Skip.
 - Coverage-Stand 2026-10-24: **85 % Zeilen** offline (vorher 54 %). LegacyProtocol (ext-imap) bleibt ungetestet.
