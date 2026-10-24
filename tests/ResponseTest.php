@@ -233,7 +233,6 @@ class ResponseTest extends TestCase {
     }
 
     public function testExceptionDebugMessageWithDeeplyNestedResponse(): void {
-        $this->markTestSkipped("BUG: ResponseException::debug_message() casts nested response arrays to string (\"Array to string conversion\")");
         $response = Response::make(4, ["TAG4 EXPUNGE\r\n"], ["TAG4 NO", ["OK", ["0.001", "+", ["deep"]]]], true);
         $message = ResponseException::make($response, true)->getMessage();
 
