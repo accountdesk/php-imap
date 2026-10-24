@@ -34,6 +34,16 @@ usage() {
     exit 1
 }
 
+# Test image and vendor/ (as phpunit.sh does) - live_env needs them before phpunit.sh runs
+prepare_php() {
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        docker build -q -f tests/docker/php.Dockerfile --build-arg PHP_VERSION="$PHP_VERSION" -t "$IMAGE" tests/docker >/dev/null
+    fi
+    if [ ! -f vendor/autoload.php ]; then
+        docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/app -w /app "$IMAGE" composer install -q --no-interaction
+    fi
+}
+
 # Print the LIVE_MAILBOX_* variables of a target as env-file lines (evaluated in the test image, no local PHP)
 live_env() {
     docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/app -w /app "$IMAGE" php -r '
@@ -108,7 +118,12 @@ case "$cmd" in
         # env file instead of -e: DOCKER_ARGS is word-split by phpunit.sh, passwords may contain spaces
         mkdir -p build
         env_file="build/.imap-live-$target.env"
-        live_env "$target" > "$env_file"
+        prepare_php
+        if ! live_env "$target" > "$env_file"; then
+            cat "$env_file" >&2
+            rm -f "$env_file"
+            exit 1
+        fi
         service=$(sed -n 's/^# service=//p' "$env_file")
         if [ -n "$service" ]; then
             if ! $COMPOSE up -d --force-recreate --renew-anon-volumes --wait "$service" toxiproxy >/dev/null 2>&1; then
