@@ -63,6 +63,40 @@ class ConfigTest extends TestCase {
         self::assertSame("flat", $config->get("a"));
     }
 
+    /**
+     * A list replaces the existing list - array_merge() would append it (["attachment", "inline", "attachment"])
+     */
+    public function testSetReplacesLists(): void {
+        $config = Config::make();
+
+        $config->set("options.dispositions", ["attachment"]);
+        self::assertSame(["attachment"], $config->get("options.dispositions"));
+
+        $config->set("accounts.default.extensions", ["X-GM-LABELS"]);
+        $config->set("accounts.default.extensions", ["X-GM-MSGID"]);
+        self::assertSame(["X-GM-MSGID"], $config->get("accounts.default.extensions"));
+    }
+
+    /**
+     * Setting below a scalar value replaces it instead of failing ("Cannot use a scalar value as an array")
+     */
+    public function testSetBelowAScalar(): void {
+        $config = new Config(["options" => ["delimiter" => "/"]]);
+
+        $config->set("options.delimiter.x", 1);
+        self::assertSame(["x" => 1], $config->get("options.delimiter"));
+    }
+
+    /**
+     * A list given where the defaults have named keys must not raise "Undefined array key"
+     */
+    public function testMakeWithListForAssociativeDefaults(): void {
+        $config = Config::make(["options" => ["common_folders" => ["INBOX/Trash", "INBOX/Sent", "INBOX/Spam", "INBOX/Drafts", "INBOX/Archive", "INBOX/Other"]]]);
+
+        self::assertSame("INBOX/Trash", $config->get("options.common_folders.trash"));
+        self::assertContains("INBOX/Other", $config->get("options.common_folders"));
+    }
+
     public function testDefaultAccount(): void {
         $config = new Config();
         self::assertSame("default", $config->getDefaultAccount());
