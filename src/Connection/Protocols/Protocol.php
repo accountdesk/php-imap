@@ -195,9 +195,9 @@ abstract class Protocol implements ProtocolInterface {
 
     /**
      * Prepare socket options
-     * @return array
-     *@var string $transport
+     * @param string $transport
      *
+     * @return array
      */
     private function defaultSocketOptions(string $transport): array {
         $options = [];
@@ -210,19 +210,6 @@ abstract class Protocol implements ProtocolInterface {
             if (count($this->ssl_options)) {
                 /* Get the ssl context options from the config, but prioritize the 'validate_cert' config over the ssl context options */
                 $options["ssl"] = array_replace($this->ssl_options, $options["ssl"]);
-            }
-        }
-
-        if ($this->proxy["socket"] != null) {
-            $options[$transport]["proxy"] = $this->proxy["socket"];
-            $options[$transport]["request_fulluri"] = $this->proxy["request_fulluri"];
-
-            if ($this->proxy["username"] != null) {
-                $auth = base64_encode($this->proxy["username"].':'.$this->proxy["password"]);
-
-                $options[$transport]["header"] = [
-                    "Proxy-Authorization: Basic $auth"
-                ];
             }
         }
 
@@ -240,18 +227,93 @@ abstract class Protocol implements ProtocolInterface {
      * @throws ConnectionFailedException
      */
     public function createStream($transport, string $host, int $port, int $timeout) {
-        $socket = "$transport://$host:$port";
-        $stream = stream_socket_client($socket, $errno, $errstr, $timeout,
-            STREAM_CLIENT_CONNECT,
-            stream_context_create($this->defaultSocketOptions($transport))
-        );
+        if ($this->proxy["socket"] != null) {
+            $stream = $this->createProxyTunnel($transport, $host, $port, $timeout);
+        } else {
+            $socket = "$transport://$host:$port";
+            $stream = stream_socket_client($socket, $errno, $errstr, $timeout,
+                STREAM_CLIENT_CONNECT,
+                stream_context_create($this->defaultSocketOptions($transport))
+            );
 
-        if (!$stream) {
-            throw new ConnectionFailedException($errstr, $errno);
+            if (!$stream) {
+                throw new ConnectionFailedException($errstr, $errno);
+            }
         }
 
         if (false === stream_set_timeout($stream, $timeout)) {
             throw new ConnectionFailedException('Failed to set stream timeout');
+        }
+
+        return $stream;
+    }
+
+    /**
+     * Open a tunnel to the IMAP server through an HTTP proxy (HTTP CONNECT, RFC 9110 9.3.6).
+     *
+     * PHP only knows the "proxy" context option for its http:// wrapper - tcp:// and ssl:// sockets ignore it.
+     * So the connection to the proxy is opened as plain socket, the tunnel is requested with CONNECT and TLS
+     * (for "ssl" / "tls") is started inside the tunnel, verified against the IMAP host name.
+     * "request_fulluri" has no meaning for CONNECT and is ignored.
+     *
+     * @param string $transport
+     * @param string $host
+     * @param int $port
+     * @param int $timeout
+     *
+     * @return resource
+     * @throws ConnectionFailedException
+     */
+    protected function createProxyTunnel(string $transport, string $host, int $port, int $timeout) {
+        $proxy = (string)$this->proxy["socket"];
+        if (!str_contains($proxy, "://")) {
+            $proxy = "tcp://" . $proxy;
+        }
+
+        $options = $this->defaultSocketOptions($transport);
+        if (isset($options["ssl"]) && !isset($options["ssl"]["peer_name"])) {
+            // the socket is connected to the proxy, the certificate has to match the IMAP server
+            $options["ssl"]["peer_name"] = $host;
+        }
+
+        $stream = @stream_socket_client($proxy, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, stream_context_create($options));
+        if (!$stream) {
+            throw new ConnectionFailedException("proxy connection failed: $errstr", $errno);
+        }
+        stream_set_timeout($stream, $timeout);
+
+        $authority = (str_contains($host, ":") ? "[$host]" : $host) . ":" . $port;
+        $request = "CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n";
+        if ($this->proxy["username"] != null) {
+            $request .= "Proxy-Authorization: Basic " . base64_encode($this->proxy["username"] . ':' . $this->proxy["password"]) . "\r\n";
+        }
+        $request .= "\r\n";
+
+        if (@fwrite($stream, $request) !== strlen($request)) {
+            fclose($stream);
+            throw new ConnectionFailedException("proxy connection failed: could not send the CONNECT request");
+        }
+
+        $status = fgets($stream);
+        if ($status === false || !preg_match('/^HTTP\/\d(?:\.\d)?\s+(\d{3})/', $status, $matches)) {
+            fclose($stream);
+            throw new ConnectionFailedException("proxy connection failed: no valid answer to CONNECT");
+        }
+        // skip the response headers
+        do {
+            $line = fgets($stream);
+        } while ($line !== false && rtrim($line, "\r\n") !== "");
+        if ($matches[1] !== "200" || $line === false) {
+            fclose($stream);
+            throw new ConnectionFailedException("proxy connection failed: " . trim($status));
+        }
+
+        if (in_array($transport, ["ssl", "tls"], true)) {
+            if (!@stream_socket_enable_crypto($stream, true, $this->getCryptoMethod())) {
+                fclose($stream);
+                $error = error_get_last();
+                throw new ConnectionFailedException("TLS handshake through the proxy failed" . ($error ? ": " . $error["message"] : ""));
+            }
         }
 
         return $stream;

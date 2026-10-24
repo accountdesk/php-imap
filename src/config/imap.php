@@ -82,6 +82,8 @@ return [
             'password' => '',
             'authentication' => null,
             'rfc' => 'RFC822', // If you are using iCloud, you might want to set this to 'BODY'
+            // HTTP proxy: the connection is tunneled with CONNECT, e.g. 'socket' => 'tcp://proxy.local:3128'
+            // ('request_fulluri' has no effect for CONNECT)
             'proxy' => [
                 'socket' => null,
                 'request_fulluri' => false,
