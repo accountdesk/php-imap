@@ -42,7 +42,7 @@ class FourNestedEmailsTest extends FixtureTestCase {
         $attachment = $attachments[0];
         self::assertInstanceOf(Attachment::class, $attachment);
         self::assertEquals("2-second-email.eml", $attachment->name);
-        self::assertEquals('text', $attachment->type);
+        self::assertEquals('message', $attachment->type);
         self::assertEquals('eml', $attachment->getExtension());
         self::assertEquals("message/rfc822", $attachment->content_type);
         self::assertEquals("85012e6a26d064a0288ee62618b3192687385adb4a4e27e48a28f738a325ca46", hash("sha256", $attachment->content));

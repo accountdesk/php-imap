@@ -198,6 +198,7 @@ class Part {
             $content_type = $content_types[0];
             $parts = explode(';', $content_type);
             $this->content_type = trim($parts[0]);
+            $this->type = $this->parseType($this->content_type);
         }
 
         // Surrounding whitespace is no content for text and transfer encoded data (base64, quoted-printable), but
@@ -247,6 +248,27 @@ class Part {
         }
 
         return ["", $raw];
+    }
+
+    /**
+     * Map the primary type of a content type to the IMAP::ATTACHMENT_TYPE_* constant (like the "type" of
+     * imap_fetchstructure(); IMAP::ATTACHMENT_TYPE_TEXT equals IMAP::MESSAGE_TYPE_TEXT)
+     * @param string $content_type
+     *
+     * @return int
+     */
+    private function parseType(string $content_type): int {
+        return match (strtolower(explode("/", $content_type)[0])) {
+            "text" => IMAP::ATTACHMENT_TYPE_TEXT,
+            "multipart" => IMAP::ATTACHMENT_TYPE_MULTIPART,
+            "message" => IMAP::ATTACHMENT_TYPE_MESSAGE,
+            "application" => IMAP::ATTACHMENT_TYPE_APPLICATION,
+            "audio" => IMAP::ATTACHMENT_TYPE_AUDIO,
+            "image" => IMAP::ATTACHMENT_TYPE_IMAGE,
+            "video" => IMAP::ATTACHMENT_TYPE_VIDEO,
+            "model" => IMAP::ATTACHMENT_TYPE_MODEL,
+            default => IMAP::ATTACHMENT_TYPE_OTHER,
+        };
     }
 
     /**
@@ -323,7 +345,7 @@ class Part {
             }
         }
 
-        if ($this->disposition === "inline" && $this->filename == null && $this->name == null && !$this->header->has("content_id")) {
+        if (strtolower($this->disposition ?? '') === "inline" && $this->filename == null && $this->name == null && !$this->header->has("content_id")) {
             return false;
         }
         return true;

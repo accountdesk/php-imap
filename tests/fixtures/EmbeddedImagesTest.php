@@ -78,7 +78,6 @@ class EmbeddedImagesTest extends FixtureTestCase {
      * @return void
      */
     public function testAttachmentType() : void {
-        $this->markTestSkipped("BUG: Part::\$type is never set while parsing, every attachment reports type 'text'");
         $message = $this->getFixture("embedded_images.eml");
 
         self::assertSame("image", $message->getAttachments()->get(0)->type);

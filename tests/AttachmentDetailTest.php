@@ -119,17 +119,23 @@ class AttachmentDetailTest extends TestCase {
         $message = $this->message();
         $config = $message->getConfig();
 
-        $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822\r\nContent-Description: Forwarded message", $config), 1);
-        $part->type = IMAP::ATTACHMENT_TYPE_MESSAGE;
-        self::assertSame("Forwarded message", (new Attachment($message, $part))->name);
+        // the type is taken from the content type
+        $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822\r\nContent-Description: =?utf-8?Q?Weitergeleitete_Nachricht_=C3=A4?=", $config), 1);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_MESSAGE, $part->type);
+        self::assertSame("Weitergeleitete Nachricht ä", (new Attachment($message, $part))->name);
 
         $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822", $config), 1);
-        $part->type = IMAP::ATTACHMENT_TYPE_MESSAGE;
         self::assertSame("rfc822", (new Attachment($message, $part))->name);
 
         $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822; name=\"fwd.eml\"", $config), 1);
-        $part->type = IMAP::ATTACHMENT_TYPE_MESSAGE;
         self::assertSame("fwd.eml", (new Attachment($message, $part))->name);
+
+        // a filename wins over the description / subtype
+        $part = new Part("Subject: inner", $config, new Header("Content-Type: message/rfc822\r\nContent-Disposition: attachment; filename=\"fwd.eml\"", $config), 1);
+        $attachment = new Attachment($message, $part);
+        self::assertSame("fwd.eml", $attachment->name);
+        self::assertSame("fwd.eml", $attachment->filename);
+        self::assertSame("message", $attachment->type);
     }
 
     public function testNameFallbacks(): void {

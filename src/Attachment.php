@@ -269,14 +269,9 @@ class Attachment {
             $this->name = $this->decodeName($name);
         }
 
-        if (IMAP::ATTACHMENT_TYPE_MESSAGE == $this->part->type) {
-            if ($this->part->ifdescription) {
-                if (!$this->name) {
-                    $this->name = $this->part->description;
-                }
-            } else if (!$this->name) {
-                $this->name = $this->part->subtype;
-            }
+        // an attached message without name or filename is named by its description or subtype ("rfc822")
+        if (IMAP::ATTACHMENT_TYPE_MESSAGE == $this->part->type && !$this->name && !$this->filename) {
+            $this->name = $this->description ?: $this->part->subtype;
         }
         $this->attributes = array_merge($this->part->getHeader()->getAttributes(), $this->attributes);
 

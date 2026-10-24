@@ -77,9 +77,9 @@ class ExampleBounceTest extends FixtureTestCase {
         $attachment = $attachments[0];
         self::assertInstanceOf(Attachment::class, $attachment);
         self::assertEquals('c541a506', $attachment->filename);
-        self::assertEquals("c541a506", $attachment->name);
+        self::assertEquals("delivery-status", $attachment->name);
         self::assertEquals('', $attachment->getExtension());
-        self::assertEquals('text', $attachment->type);
+        self::assertEquals('message', $attachment->type);
         self::assertEquals("message/delivery-status", $attachment->content_type);
         self::assertEquals("85ac09d1d74b2d85853084dc22abcad205a6bfde62d6056e3a933ffe7e82e45c", hash("sha256", $attachment->content));
         self::assertEquals(267, $attachment->size);
@@ -90,11 +90,11 @@ class ExampleBounceTest extends FixtureTestCase {
         $attachment = $attachments[1];
         self::assertInstanceOf(Attachment::class, $attachment);
         // the attached message is the last part and the close delimiter is missing - its last two characters
-        // used to be cut off ("...</di", 776 bytes), which also changed the hash used as name
+        // used to be cut off ("...</di", 776 bytes), which also changed the hash used as filename
         self::assertEquals('4d8a6bce', $attachment->filename);
-        self::assertEquals("4d8a6bce", $attachment->name);
+        self::assertEquals("rfc822", $attachment->name);
         self::assertEquals('', $attachment->getExtension());
-        self::assertEquals('text', $attachment->type);
+        self::assertEquals('message', $attachment->type);
         self::assertEquals("message/rfc822", $attachment->content_type);
         self::assertEquals("e5dd15b4f0b5b5721ba0b362b6002a5f72a4785e7ee262e81c1eeb4bb8fbf519", hash("sha256", $attachment->content));
         self::assertStringEndsWith("Beispiel-Text.</div>", $attachment->content);

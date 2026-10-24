@@ -128,7 +128,6 @@ class PartDetailTest extends TestCase {
     }
 
     public function testDispositionIsCaseInsensitive(): void {
-        $this->markTestSkipped("BUG: Part::isAttachment() compares the disposition 'inline' case-sensitively, 'INLINE' text parts become attachments");
         self::assertFalse($this->part("Content-Type: text/plain\r\nContent-Disposition: INLINE")->isAttachment());
     }
 }
