@@ -40,6 +40,8 @@
 *      flags     msgn=1, flags="\\Seen"  "* n FETCH (FLAGS (...))" for the sessions that selected the mailbox
 *      outage    seconds=2               server restart: close all sessions, refuse connections for n
 *                                        seconds, then listen on the same port again
+*      blackhole seconds=2               network dead for n seconds: sessions in IDLE stop answering, new
+*                                        connections get the greeting but no answer to any command
 *     Actions that target sessions in IDLE (send, drop, bye, freeze) wait until a session is in IDLE.
 */
 
@@ -83,6 +85,7 @@ $raw_message = function (int $uid) use (&$uidvalidity): string {
 $context = stream_context_create(["socket" => ["tcp_nodelay" => true]]);
 $server = stream_socket_server("tcp://127.0.0.1:0", $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $context);
 $outage_until = 0.0;
+$blackhole_until = 0.0;
 if (!$server) {
     fwrite(STDERR, "cannot listen: $errstr\n");
     exit(1);
@@ -136,8 +139,12 @@ $idling_sessions = function () use (&$state): array {
 };
 
 // Execute an event; returns false if it has to wait for a session in IDLE
-$run = function (array $event) use (&$mailbox, &$uidnext, &$uidvalidity, &$state, $notify, $idling_sessions, $send, &$clients, $close, $log, &$server, &$outage_until): bool {
+$run = function (array $event) use (&$mailbox, &$uidnext, &$uidvalidity, &$state, $notify, $idling_sessions, $send, &$clients, $close, $log, &$server, &$outage_until, &$blackhole_until): bool {
     $do = $event["do"];
+    if ($do === "blackhole") {
+        $blackhole_until = microtime(true) + (float)($event["seconds"] ?? 2);
+        $event["do"] = $do = "freeze";
+    }
     if (in_array($do, ["send", "drop", "bye", "freeze"], true)) {
         $targets = $idling_sessions();
         if ($targets === []) {
@@ -267,7 +274,7 @@ while (microtime(true) < $end) {
             if ($client) {
                 $id = $next_id++;
                 $clients[$id] = $client;
-                $state[$id] = ["idling" => false, "idle_tag" => null, "selected" => false, "frozen" => false, "queue" => [], "last_still_here" => 0.0];
+                $state[$id] = ["idling" => false, "idle_tag" => null, "selected" => false, "frozen" => microtime(true) < $blackhole_until, "queue" => [], "last_still_here" => 0.0];
                 $send($client, "* OK [CAPABILITY " . $config["capability"] . "] fake server ready");
             }
             continue;

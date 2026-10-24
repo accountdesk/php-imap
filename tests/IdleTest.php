@@ -379,6 +379,19 @@ class IdleTest extends TestCase {
         self::assertSame(["reconnect"], array_values(array_unique(array_filter($result["reasons"], fn($r) => $r !== "keepalive"))));
     }
 
+    public function testLoginWithoutAnswerDuringReconnectIsRetried(): void {
+        // The network is dead for 3.5 s: the keep-alive DONE gets no answer, the first reconnect gets the
+        // greeting but no answer to LOGIN (AuthFailedException caused by a read timeout) - that is retried
+        $result = $this->runIdle(["events" => [
+            ["at" => 0.2, "do" => "blackhole", "seconds" => 3.5],
+            ["at" => 0.4, "do" => "arrive", "silent" => true],
+            ["at" => 7.0, "do" => "arrive"],
+        ]], 1, 9);
+
+        self::assertSame(["message 1", "message 2"], $result["subjects"]);
+        self::assertSame(1, $result["stats"]["reconnects"]);
+    }
+
     public function testGivesUpWhenTheServerStaysUnreachable(): void {
         $port = $this->startServer(30, ["events" => [["at" => 0.3, "do" => "outage", "seconds" => 60]]]);
         $folder = $this->connectFolder($port);

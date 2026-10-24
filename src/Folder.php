@@ -656,7 +656,12 @@ class Folder {
                         $idle_client->connect();
                         $selected = $select();
                         break;
-                    } catch (ConnectionFailedException|RuntimeException $e) {
+                    } catch (ConnectionFailedException|RuntimeException|AuthFailedException $e) {
+                        // A rejected login is final - but a login that got no answer (the network is still
+                        // dead) surfaces as AuthFailedException caused by a RuntimeException and is retried
+                        if ($e instanceof AuthFailedException && !($e->getPrevious() instanceof RuntimeException)) {
+                            throw $e;
+                        }
                         $runtime_over = $max_runtime > 0 && (time() + $delay - $start) >= $max_runtime;
                         if (time() + $delay > $give_up || $runtime_over) {
                             throw $e;

@@ -278,6 +278,7 @@ class QueryTest extends LiveMailboxTestCase {
         self::assertIsArray($item);
         self::assertIsString($item[0]);
         self::assertCount(1, $item);
-        self::assertSame(['HEADER '.$criteria.' '.$value], $item);
+        // field name and value are quoted (escaping against command injection)
+        self::assertSame(['HEADER "'.$criteria.'" "'.$value.'"'], $item);
     }
 }
