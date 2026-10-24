@@ -125,6 +125,10 @@ class HeaderAddressTest extends TestCase {
             "\"Max   Mustermann\" <m@x.de>"   => [["Max   Mustermann", "m", "x.de"]],
             // quoted display name and address without angle brackets
             "\"John Doe\" john@x.com"         => [["John Doe", "john", "x.com"]],
+            // quoted local part inside the angle brackets
+            "Name <\"first last\"@x.com>"     => [["Name", "first last", "x.com"]],
+            // quoted-pairs inside a comment
+            "a@b.c (Doe \\(Jr.\\))"           => [["Doe (Jr.)", "a", "b.c"]],
         ];
         foreach ($cases as $list => $expected) {
             self::assertSame($expected, $this->to($list), $list);

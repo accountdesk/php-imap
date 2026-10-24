@@ -303,20 +303,13 @@ class Header {
                 $imap_headers[$key] = $values;
             }
         }
+        // unfold: after this only a continuation line at the very beginning (without a header line before)
+        // starts with whitespace - it is ignored like any other line without a field name
         $lines = explode("\r\n", preg_replace("/\r\n[ \t]/", ' ', $raw_headers));
-        $prev_header = null;
         foreach ($lines as $line) {
-            if (str_starts_with($line, "\t") || str_starts_with($line, " ")) {
-                // a continuation line without a header line before (e.g. at the very beginning)
-                $line = trim($line);
-                if ($prev_header !== null && $line !== "") {
-                    $last = count($headers[$prev_header]) - 1;
-                    $headers[$prev_header][$last] = trim($headers[$prev_header][$last] . " " . $line);
-                }
-            } elseif (($pos = strpos($line, ":")) > 0) {
+            if (!str_starts_with($line, "\t") && !str_starts_with($line, " ") && ($pos = strpos($line, ":")) > 0) {
                 $key = strtolower(str_replace("-", "_", trim(substr($line, 0, $pos))));
                 $headers[$key][] = trim(substr($line, $pos + 1));
-                $prev_header = $key;
             }
         }
 
@@ -604,7 +597,7 @@ class Header {
     }
 
     /**
-     * Turn parsed address objects into Address instances and decode their display names
+     * Turn parsed address objects (see parseAddressList()) into Address instances and decode their display names
      * @param array $list
      *
      * @return Address[]
@@ -614,18 +607,7 @@ class Header {
 
         foreach ($list as $item) {
             $address = (object)$item;
-
-            if (!property_exists($address, 'mailbox')) {
-                $address->mailbox = false;
-            }
-            if (!property_exists($address, 'host')) {
-                $address->host = false;
-            }
-            if (!property_exists($address, 'personal')) {
-                $address->personal = false;
-            } else {
-                $address->personal = trim((string)$this->decoder->decode((string)$address->personal));
-            }
+            $address->personal = trim((string)$this->decoder->decode((string)$address->personal));
 
             if ($address->host == ".SYNTAX-ERROR.") {
                 $address->host = "";

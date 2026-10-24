@@ -201,6 +201,20 @@ class HeaderDetailTest extends TestCase {
         self::assertContains("attachment", $header->get("content_disposition")->all());
     }
 
+    public function testDateVariantsWithFallback(): void {
+        $this->config->set("options.fallback_date", "2000-01-01 00:00:00");
+
+        // the date repeated (some gateways add it twice)
+        $header = $this->header("Date: Mon, 1 Jan 2024 10:00:00 +0000 Mon, 1 Jan 2024 10:00:00 +0000");
+        self::assertSame("2024-01-01 10:00:00", $header->get("date")->first()->format("Y-m-d H:i:s"));
+
+        // a very long date is cut before the regex fallbacks run (ReDoS guard), garbage uses the fallback
+        $header = $this->header("Date: Mon, 1 Jan 2024 10:00:00 +0000" . str_repeat(" (comment)", 40));
+        self::assertSame("2024-01-01 10:00:00", $header->get("date")->first()->format("Y-m-d H:i:s"));
+        $header = $this->header("Date: " . str_repeat("x", 300));
+        self::assertSame("2000-01-01 00:00:00", $header->get("date")->first()->format("Y-m-d H:i:s"));
+    }
+
     public function testParameterNamesAreNormalized(): void {
         $header = $this->header("Content-Type: application/pkcs7-mime; smime-type=enveloped-data; name=\"smime.p7m\"\r\n".
             "Content-Disposition: attachment; filename=\"a.pdf\"; creation-date=\"Tue, 05 Mar 2024 09:11:02 GMT\"");
