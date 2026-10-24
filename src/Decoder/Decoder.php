@@ -95,7 +95,15 @@ abstract class Decoder implements DecoderInterface {
         // Decode them via iconv/mbstring and return the result as UTF-8.
         if (preg_match('/=\?[^?]+\?[bq]\?/i', $text)) {
             if (function_exists('iconv_mime_decode')) {
-                $decoded = @iconv_mime_decode($text, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, "UTF-8");
+                $decoded = @iconv_mime_decode($text, 0, "UTF-8");
+                if ($decoded === false) {
+                    // Malformed somewhere: decode what can be decoded, but do not accept a mangled
+                    // leftover of an encoded-word - like ext-imap, keep the original text then
+                    $decoded = @iconv_mime_decode($text, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, "UTF-8");
+                    if ($decoded !== false && str_contains($decoded, "=?")) {
+                        $decoded = false;
+                    }
+                }
             } else {
                 $decoded = mb_decode_mimeheader($text);
             }
