@@ -97,6 +97,19 @@ class ConfigTest extends TestCase {
         self::assertContains("INBOX/Other", $config->get("options.common_folders"));
     }
 
+    public function testHasAndClear(): void {
+        $config = Config::make();
+        self::assertTrue($config->has("options.fetch_order"));
+        self::assertFalse($config->has("options.nope"));
+        // a null value counts as missing
+        $config->set("options.fallback", null);
+        self::assertFalse($config->has("options.fallback"));
+
+        self::assertSame($config, $config->clear());
+        self::assertSame([], $config->all());
+        self::assertFalse($config->has("options"));
+    }
+
     public function testDefaultAccount(): void {
         $config = new Config();
         self::assertSame("default", $config->getDefaultAccount());

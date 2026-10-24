@@ -393,4 +393,40 @@ class ImapProtocolMailboxTest extends ScriptedServerTestCase {
         $protocol->getQuotaRoot("Sent Items");
         $this->assertScriptCompleted();
     }
+    /*
+     * IDLE (rfc2177) - the happy path is covered by IdleTest
+     */
+
+    public function testIdleRejected(): void {
+        $protocol = $this->connectedProtocol([
+            self::step("IDLE", ["* 4 EXISTS", "{tag} BAD Error in IMAP command IDLE: Unknown command."]),
+        ]);
+
+        try {
+            $protocol->idle();
+            self::fail("RuntimeException expected");
+        } catch (RuntimeException $e) {
+            self::assertSame("idle failed", $e->getMessage());
+        }
+        // the untagged response before the rejection is kept
+        self::assertSame(["* 4 EXISTS\r\n"], $protocol->pullIdleUntaggedResponses());
+        self::assertSame([], $protocol->pullIdleUntaggedResponses());
+    }
+
+    public function testDoneRejected(): void {
+        $protocol = $this->connectedProtocol([
+            self::step("IDLE", ["+ idling"]),
+            self::step("/^DONE$/", ["* 5 EXISTS", "TAG1 NO Idle failed."]),
+        ]);
+
+        $protocol->idle();
+        try {
+            $protocol->done();
+            self::fail("RuntimeException expected");
+        } catch (RuntimeException $e) {
+            self::assertSame("done failed", $e->getMessage());
+        }
+        self::assertSame(["* 5 EXISTS\r\n"], $protocol->pullIdleUntaggedResponses());
+        $this->assertScriptCompleted();
+    }
 }
