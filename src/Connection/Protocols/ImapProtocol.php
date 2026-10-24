@@ -478,7 +478,10 @@ class ImapProtocol extends Protocol {
 
         $response->addCommand($command);
 
-        if (fwrite($this->stream, $command) === false) {
+        // A closed connection must surface as RuntimeException (connected() relies on it) - not as a PHP
+        // warning, which error handlers such as Laravel's or PHPUnit's turn into a different exception
+        $written = is_resource($this->stream) ? @fwrite($this->stream, $command) : false;
+        if ($written === false || ($written === 0 && $command !== "")) {
             throw new RuntimeException('failed to write - connection closed?');
         }
     }

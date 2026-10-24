@@ -460,7 +460,23 @@ class Folder {
 
         $idle_client = $this->client->clone();
         $idle_client->connect();
-        $selected = $idle_client->openFolder($this->path, true);
+
+        // Select the folder on the idle session. UIDNEXT is needed to find messages that arrive while the
+        // session is down - servers that leave it out of the SELECT response (Courier) are asked via STATUS.
+        $select = function () use ($idle_client): array {
+            $selected = $idle_client->openFolder($this->path, true);
+            if (!isset($selected["uidnext"]) && $idle_client->getConnection() instanceof \Webklex\PHPIMAP\Connection\Protocols\ImapProtocol) {
+                try {
+                    $status = $idle_client->getConnection()->folderStatus($this->path, ["UIDNEXT", "UIDVALIDITY"])->validatedData();
+                    $selected["uidnext"] = $status["uidnext"] ?? null;
+                    $selected["uidvalidity"] ??= $status["uidvalidity"] ?? null;
+                } catch (Exceptions\RuntimeException|ImapBadRequestException|ImapServerErrorException|ResponseException) {
+                    // no UIDNEXT - messages that arrive during a reconnect cannot be detected
+                }
+            }
+            return $selected;
+        };
+        $selected = $select();
 
         $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
 
@@ -569,6 +585,11 @@ class Folder {
             // "* OK Still here" restarts the read timeout and stretches the interval up to 2 x $timeout.
             $stream = $connection instanceof \Webklex\PHPIMAP\Connection\Protocols\Protocol ? $connection->getStream() : null;
             $wait = max(1, $timeout - (time() - $last_keepalive));
+            // ... and at most until $max_runtime is reached - a keep-alive interval longer than the
+            // remaining runtime must not keep idle() running past $max_runtime
+            $runtime_left = $max_runtime > 0 ? max(1, $max_runtime - (time() - $start)) : $wait;
+            $cut_by_runtime = $runtime_left < $wait;
+            $wait = min($wait, $runtime_left);
             $shortened = is_resource($stream) && $wait < $timeout;
             if ($shortened) {
                 stream_set_timeout($stream, $wait);
@@ -594,7 +615,7 @@ class Folder {
                 $handle_line($line);
             }
 
-            if ($alive && ($line === null || (time() - $last_keepalive) >= $timeout)) {
+            if ($alive && (($line === null && !$cut_by_runtime) || (time() - $last_keepalive) >= $timeout)) {
                 // Re-issue IDLE as a keep-alive (rfc2177 §3) so the server does not drop the session for
                 // inactivity - after a read timeout, or when the server kept sending other untagged data.
                 // If the roundtrip fails the connection is silently dead - fall through to a reconnect.
@@ -624,8 +645,26 @@ class Folder {
                 // inactivity timeout such as the ~30 minutes granted by RFC 2177). Re-establish the
                 // idle session instead of busy-looping on the dead stream.
                 $connection->reset();
-                $idle_client->connect();
-                $selected = $idle_client->openFolder($this->path, true);
+                // The server may be unreachable for a moment (restart, failover, network blip): retry with a
+                // growing delay instead of giving up - the state needed to deliver the messages that arrive
+                // meanwhile (UIDNEXT) only lives in this loop. Give up after max(timeout, 60) seconds or when
+                // $max_runtime is reached.
+                $delay = 1;
+                $give_up = time() + max($timeout, 60);
+                while (true) {
+                    try {
+                        $idle_client->connect();
+                        $selected = $select();
+                        break;
+                    } catch (ConnectionFailedException|RuntimeException $e) {
+                        $runtime_over = $max_runtime > 0 && (time() + $delay - $start) >= $max_runtime;
+                        if (time() + $delay > $give_up || $runtime_over) {
+                            throw $e;
+                        }
+                        sleep($delay);
+                        $delay = min($delay * 2, 30);
+                    }
+                }
                 // connect() created a new protocol instance - pick it up before entering IDLE again
                 $connection = $idle_client->getConnection();
 
