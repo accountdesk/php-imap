@@ -211,11 +211,19 @@ class Part {
      * @throws InvalidMessageDateException
      */
     private function findHeaders(): string {
-        $body = $this->raw;
-        while (($pos = strpos($body, "\r\n")) > 0) {
-            $body = substr($body, $pos + 2);
+        // Split headers/body at the first blank line via a single strpos instead of a
+        // line-by-line substr loop, which is quadratic on large parts (e.g. attachments).
+        $pos = strpos($this->raw, "\r\n\r\n");
+        if ($pos !== false) {
+            $headers = substr($this->raw, 0, $pos + 2);
+            $body = substr($this->raw, $pos + 2);
+        } else {
+            $body = $this->raw;
+            while (($p = strpos($body, "\r\n")) > 0) {
+                $body = substr($body, $p + 2);
+            }
+            $headers = substr($this->raw, 0, strlen($body) * -1);
         }
-        $headers = substr($this->raw, 0, strlen($body) * -1);
         $body = substr($body, 0, -2);
 
         $this->header = new Header($headers, $this->config);

@@ -226,7 +226,7 @@ class ImapProtocol extends Protocol {
      * @throws RuntimeException
      */
     protected function assumedNextTaggedLine(Response $response, string $start, &$tag): bool {
-        return str_contains($this->nextTaggedLine($response, $tag), $start);
+        return str_starts_with($this->nextTaggedLine($response, $tag), $start);
     }
 
     /**
@@ -239,7 +239,7 @@ class ImapProtocol extends Protocol {
      */
     protected function assumedNextTaggedLineIgnoreUntagged(Response $response, string $start, &$tag): bool {
         $line = $this->nextTaggedLineIgnoreUntagged($response, $tag);
-        return strpos($line, $start) !== false;
+        return str_starts_with($line, $start);
     }
 
     /**
@@ -275,12 +275,12 @@ class ImapProtocol extends Protocol {
                 $line = substr($line, $pos + 1);
                 continue;
             }
-            while ($token[0] == '(') {
+            while ($token !== '' && $token[0] == '(') {
                 $stack[] = $tokens;
                 $tokens = [];
                 $token = substr($token, 1);
             }
-            if ($token[0] == '"') {
+            if ($token !== '' && $token[0] == '"') {
                 // A quoted string ends at a space, at the end of the line or at a closing
                 // parenthesis: (UID 1 INTERNALDATE "22-Oct-2026 10:00:00 +0000").
                 // A backslash escapes the next character, so \" never ends the string.
@@ -297,7 +297,7 @@ class ImapProtocol extends Protocol {
                     continue;
                 }
             }
-            if ($token[0] == '{') {
+            if ($token !== '' && $token[0] == '{') {
                 $endPos = strpos($token, '}');
                 $chars = substr($token, 1, $endPos - 1);
                 if (is_numeric($chars)) {
@@ -317,7 +317,7 @@ class ImapProtocol extends Protocol {
                     continue;
                 }
             }
-            if ($stack && $token[strlen($token) - 1] == ')') {
+            if ($stack && $token !== '' && $token[strlen($token) - 1] == ')') {
                 // closing braces are not separated by spaces, so we need to count them
                 $braces = strlen($token);
                 $token = rtrim($token, ')');
@@ -474,13 +474,30 @@ class ImapProtocol extends Protocol {
      */
     public function write(Response $response, string $data): void {
         $command = $data . "\r\n";
-        if ($this->debug) echo ">> " . $command . "\n";
+        if ($this->debug) echo ">> " . $this->redactCredentials($command) . "\n";
 
         $response->addCommand($command);
 
-        if (fwrite($this->stream, $command) === false) {
+        // A closed connection must surface as RuntimeException (connected() relies on it) - not as a PHP
+        // warning, which error handlers such as Laravel's or PHPUnit's turn into a different exception
+        $written = is_resource($this->stream) ? @fwrite($this->stream, $command) : false;
+        if ($written === false || ($written === 0 && $command !== "")) {
             throw new RuntimeException('failed to write - connection closed?');
         }
+    }
+
+    /**
+     * Redact passwords and auth tokens from a command line before it is echoed in debug mode
+     * @param string $command
+     *
+     * @return string
+     */
+    protected function redactCredentials(string $command): string {
+        // LOGIN "user" "password" -> keep the user, mask the password
+        $command = preg_replace('/^(TAG\d+ LOGIN\s+("[^"]*"|\S+)\s+).*$/is', '$1"***"', $command);
+        // AUTHENTICATE <mechanism> <base64 credentials> -> mask the credentials
+        $command = preg_replace('/^(TAG\d+ AUTHENTICATE\s+\S+\s+).*$/is', '$1***', $command);
+        return $command;
     }
 
     /**
@@ -511,7 +528,7 @@ class ImapProtocol extends Protocol {
      */
     public function escapeString(array|string $string): array|string {
         if (func_num_args() < 2) {
-            if (str_contains($string, "\n")) {
+            if (str_contains($string, "\n") || str_contains($string, "\r")) {
                 return ['{' . strlen($string) . '}', $string];
             } else {
                 return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $string) . '"';
@@ -831,9 +848,23 @@ class ImapProtocol extends Protocol {
 
             // if we only want one item we return that one directly
             if (count($items) == 1) {
-                if ($tokens[2][0] == $items[0]) {
+                $expectedItem = (string) $items[0];
+                $itemMatches = static function($actual, $expected): bool {
+                    $actualNorm = strtoupper((string) $actual);
+                    $expectedNorm = strtoupper((string) $expected);
+                    if ($actualNorm === $expectedNorm) {
+                        return true;
+                    }
+                    // IMAP may answer BODY[...] even when request used BODY.PEEK[...].
+                    if (str_replace('.PEEK', '', $actualNorm) === str_replace('.PEEK', '', $expectedNorm)) {
+                        return true;
+                    }
+                    return false;
+                };
+
+                if ($itemMatches($tokens[2][0] ?? '', $expectedItem)) {
                     $data = $tokens[2][1];
-                } elseif ($uid === IMAP::ST_UID && $tokens[2][2] == $items[0]) {
+                } elseif ($uid === IMAP::ST_UID && $itemMatches($tokens[2][2] ?? '', $expectedItem)) {
                     $data = $tokens[2][3];
                 } else {
                     $expectedResponse = 0;
@@ -841,7 +872,7 @@ class ImapProtocol extends Protocol {
                     $count = count($tokens[2]);
                     // we start with 2, because 0 was already checked
                     for ($i = 2; $i < $count; $i += 2) {
-                        if ($tokens[2][$i] != $items[0]) {
+                        if (!$itemMatches($tokens[2][$i] ?? '', $expectedItem)) {
                             continue;
                         }
                         $data = $tokens[2][$i + 1];
@@ -885,13 +916,19 @@ class ImapProtocol extends Protocol {
      * @param string $rfc
      * @param int|string $uid set to IMAP::ST_UID or any string representing the UID - set to IMAP::ST_MSGN to use
      * message numbers instead.
+     * @param bool $peek true to fetch body using PEEK (do not set \Seen)
      *
      * @return Response
      * @throws RuntimeException
      */
-    public function content(int|array $uids, string $rfc = "RFC822", int|string $uid = IMAP::ST_UID): Response {
+    public function content(int|array $uids, string $rfc = "RFC822", int|string $uid = IMAP::ST_UID, bool $peek = false): Response {
         $rfc = $rfc ?? "RFC822";
-        $item = $rfc === "BODY" ? "BODY[TEXT]" : "$rfc.TEXT";
+        if ($peek && ($rfc === "RFC822" || $rfc === "BODY")) {
+            // BODY.PEEK keeps the message unread at protocol level.
+            $item = "BODY.PEEK[TEXT]";
+        } else {
+            $item = $rfc === "BODY" ? "BODY[TEXT]" : "$rfc.TEXT";
+        }
         return $this->fetch([$item], is_array($uids) ? $uids : [$uids], null, $uid);
     }
 
@@ -1051,7 +1088,7 @@ class ImapProtocol extends Protocol {
         }
 
         $result = [];
-        foreach ($response as $token) {
+        foreach ($response->data() as $token) {
             if ($token[1] != 'FETCH' || $token[2][0] != 'FLAGS') {
                 continue;
             }
@@ -1235,7 +1272,7 @@ class ImapProtocol extends Protocol {
         if (is_array($ids) && !empty($ids)) {
             $token = "(";
             foreach ($ids as $id) {
-                $token .= '"' . $id . '" ';
+                $token .= '"' . str_replace(['\\', '"', "\r", "\n"], ['\\\\', '\\"', '', ''], (string)$id) . '" ';
             }
             $token = rtrim($token) . ")";
         }
@@ -1354,7 +1391,7 @@ class ImapProtocol extends Protocol {
      */
     public function getQuota($username): Response {
         $command = "GETQUOTA";
-        $params = ['"#user/' . $username . '"'];
+        $params = [$this->escapeString('#user/' . $username)];
 
         return $this->requestAndResponse($command, $params);
     }
@@ -1373,7 +1410,7 @@ class ImapProtocol extends Protocol {
      */
     public function getQuotaRoot(string $quota_root = 'INBOX'): Response {
         $command = "GETQUOTAROOT";
-        $params = [$quota_root];
+        $params = [$this->escapeString($quota_root)];
 
         return $this->requestAndResponse($command, $params);
     }

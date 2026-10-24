@@ -238,7 +238,7 @@ class Client {
             $client->setAccountConfig($key, $config);
         }
         $client->default_message_mask = $this->default_message_mask;
-        $client->default_attachment_mask = $this->default_message_mask;
+        $client->default_attachment_mask = $this->default_attachment_mask;
         return $client;
     }
 
@@ -302,11 +302,6 @@ class Client {
      */
     protected function setEventsFromConfig(): void {
         $this->events = $this->config->get("events");
-        if(isset($config['events'])){
-            foreach($config['events'] as $section => $events) {
-                $this->events[$section] = array_merge($this->events[$section], $events);
-            }
-        }
     }
 
     /**
@@ -400,13 +395,20 @@ class Client {
      * @throws ResponseException
      */
     public function checkConnection(): bool {
+        $active_folder = $this->active_folder;
         try {
             if (!$this->isConnected()) {
                 $this->connect();
+                if ($active_folder !== null) {
+                    $this->openFolder($active_folder, true);
+                }
                 return true;
             }
         } catch (\Throwable) {
             $this->connect();
+            if ($active_folder !== null) {
+                $this->openFolder($active_folder, true);
+            }
         }
         return false;
     }

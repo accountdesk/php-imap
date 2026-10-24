@@ -59,9 +59,15 @@ use Webklex\PHPIMAP\Support\Masks\AttachmentMask;
 class Attachment {
 
     /**
-     * @var Message $message
+     * Weak back-reference to the message this attachment belongs to.
+     * A hard reference would create a reference cycle (Message -> AttachmentCollection ->
+     * Attachment -> Message). PHP only collects such cycles once the gc root buffer
+     * fills up (~10k roots) - with large attachment payloads this exhausts the memory
+     * limit long before the collector ever runs (see issue #531).
+     *
+     * @var \WeakReference<Message> $message
      */
-    protected Message $message;
+    protected \WeakReference $message;
 
     /**
      * Used config
@@ -121,16 +127,16 @@ class Attachment {
      * @throws DecoderNotFoundException
      */
     public function __construct(Message $message, Part $part) {
-        $this->message = $message;
-        $this->config = $this->message->getConfig();
+        $this->message = \WeakReference::create($message);
+        $this->config = $message->getConfig();
         $this->options = $this->config->get('options');
         $this->decoder = $this->config->getDecoder("attachment");
 
         $this->part = $part;
         $this->part_number = $part->part_number;
 
-        if ($this->message->getClient()) {
-            $default_mask = $this->message->getClient()?->getDefaultAttachmentMask();
+        if ($message->getClient()) {
+            $default_mask = $message->getClient()?->getDefaultAttachmentMask();
             if ($default_mask != null) {
                 $this->mask = $default_mask;
             }
@@ -293,6 +299,10 @@ class Attachment {
     public function save(string $path, ?string $filename = null): bool {
         $filename = $filename ? $this->decodeName($filename) : $this->filename;
 
+        // Always strip any directory component from the final filename, even if
+        // filename sanitisation is disabled, to prevent path traversal on save.
+        $filename = basename(str_replace('\\', '/', (string)$filename));
+
         return file_put_contents($path . DIRECTORY_SEPARATOR . $filename, $this->getContent()) !== false;
     }
 
@@ -387,10 +397,14 @@ class Attachment {
     }
 
     /**
-     * @return Message
+     * Get the message this attachment belongs to. Returns null if the message
+     * instance has already been garbage collected (the attachment only holds a
+     * weak reference to avoid a memory-exhausting reference cycle, issue #531).
+     *
+     * @return ?Message
      */
-    public function getMessage(): Message {
-        return $this->message;
+    public function getMessage(): ?Message {
+        return $this->message->get();
     }
 
     /**

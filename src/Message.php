@@ -130,10 +130,8 @@ class Message {
 
     /**
      * The message folder path
-     *
-     * @var string $folder_path
      */
-    protected string $folder_path;
+    protected string $folder_path = '';
 
     /**
      * Fetch body options
@@ -297,11 +295,12 @@ class Message {
                                  "message" => $client->getDefaultEvents("message"),
                                  "flag"    => $client->getDefaultEvents("flag"),
                              ]);
+        // The folder path first: setClient() selects the message folder right away
         $instance->setFolderPath($client->getFolderPath());
+        $instance->setClient($client);
         $instance->setSequence($sequence);
         $instance->setFetchOption($fetch_options);
 
-        $instance->setClient($client);
         $instance->setSequenceId($uid, $msglist);
 
         $instance->parseRawHeader($raw_header);
@@ -370,8 +369,14 @@ class Message {
         if(!str_contains($blob, "\r\n")){
             $blob = str_replace("\n", "\r\n", $blob);
         }
-        $raw_header = substr($blob, 0, strpos($blob, "\r\n\r\n"));
-        $raw_body = substr($blob, strlen($raw_header)+4);
+        $split = strpos($blob, "\r\n\r\n");
+        if ($split === false) {
+            $raw_header = $blob;
+            $raw_body = '';
+        } else {
+            $raw_header = substr($blob, 0, $split);
+            $raw_body = substr($blob, $split + 4);
+        }
 
         $instance->parseRawHeader($raw_header);
         $instance->parseRawBody($raw_body);
@@ -638,8 +643,9 @@ class Message {
         $this->client->openFolder($this->folder_path);
 
         $sequence_id = $this->getSequenceId();
+        $usePeek = ($this->fetch_options === IMAP::FT_PEEK);
         try {
-            $contents = $this->client->getConnection()->content([$sequence_id], $this->client->rfc, $this->sequence)->validatedData();
+            $contents = $this->client->getConnection()->content([$sequence_id], $this->client->rfc, $this->sequence, $usePeek)->validatedData();
         } catch (Exceptions\RuntimeException $e) {
             throw new MessageContentFetchingException("failed to fetch content", 0, $e);
         }
@@ -1465,11 +1471,21 @@ class Message {
 
     /**
      * Set the message path aka folder path
-     * @param $folder_path
+     * @param ?string $folder_path
      *
      * @return Message
      */
-    public function setFolderPath($folder_path): Message {
+    public function setFolderPath(?string $folder_path): Message {
+        if ($folder_path === null || $folder_path === '') {
+            $folder_path = $this->client?->getFolderPath();
+        }
+        if ($folder_path === null || $folder_path === '') {
+            $folder_path = (string)$this->config->get('options.common_folders.inbox', 'INBOX');
+        }
+        if ($folder_path === '') {
+            $folder_path = 'INBOX';
+        }
+    
         $this->folder_path = $folder_path;
 
         return $this;
