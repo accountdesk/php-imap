@@ -120,7 +120,6 @@ class EventTest extends TestCase {
     }
 
     public function testUnknownEventInKnownSectionThrows(): void {
-        $this->markTestSkipped("BUG: HasEvents::getEvent() raises 'Undefined array key' instead of EventNotFoundException for an unknown event of a known section");
         $holder = $this->holder();
         $holder->setEvents(["message" => []]);
 
