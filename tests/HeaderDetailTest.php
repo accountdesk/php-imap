@@ -201,6 +201,16 @@ class HeaderDetailTest extends TestCase {
         self::assertContains("attachment", $header->get("content_disposition")->all());
     }
 
+    public function testParameterNamesAreNormalized(): void {
+        $header = $this->header("Content-Type: application/pkcs7-mime; smime-type=enveloped-data; name=\"smime.p7m\"\r\n".
+            "Content-Disposition: attachment; filename=\"a.pdf\"; creation-date=\"Tue, 05 Mar 2024 09:11:02 GMT\"");
+
+        self::assertSame("enveloped-data", (string)$header->smime_type);
+        self::assertSame("enveloped-data", (string)$header->get("smime-type"));
+        self::assertSame("Tue, 05 Mar 2024 09:11:02 GMT", (string)$header->get("creation_date"));
+        self::assertArrayHasKey("creation_date", $header->getAttributes());
+    }
+
     public function testUserAgentIsNotParsedAsAttributes(): void {
         $header = $this->header("User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv=1)");
 

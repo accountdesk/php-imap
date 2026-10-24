@@ -664,8 +664,10 @@ class Header {
                         if($_value === "") {
                             $this->set($key, $_key);
                         }
-                        if (!isset($this->attributes[$_key])) {
-                            $this->set($_key, $_value);
+                        // parameter names are normalized like header names ("smime-type" -> "smime_type")
+                        $_name = str_replace("-", "_", $_key);
+                        if (!isset($this->attributes[$_name])) {
+                            $this->set($_name, $_value);
                         }
                     }
                 }
