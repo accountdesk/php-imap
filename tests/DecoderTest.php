@@ -114,6 +114,19 @@ class DecoderTest extends TestCase {
         self::assertSame("utf-8", Decoder::decodeMimeHeader("=?utf-8*de?Q?a?=")[0]->charset);
     }
 
+    public function testHeaderDecoderReadsUndeclared8bitAsWindows1252(): void {
+        $decoder = new HeaderDecoder();
+
+        // raw Windows-1252 / ISO-8859-1 bytes are no valid UTF-8
+        self::assertSame("Grüße für 5 €", $decoder->decode("Gr\xFC\xDFe f\xFCr 5 \x80"));
+        // raw UTF-8 (RFC 6532) is kept
+        self::assertSame("Grüße", $decoder->decode("Grüße"));
+        // mixed with an encoded word
+        self::assertSame("Re: Grüße – Köln", $decoder->decode("Re: Gr\xFC\xDFe =?utf-8?Q?=E2=80=93?= K\xF6ln"));
+        // invalid UTF-8 inside a UTF-8 encoded word is not touched (#420)
+        self::assertSame("a\xFFb", $decoder->decode("=?utf-8?B?" . base64_encode("a\xFFb") . "?="));
+    }
+
     public function testHeaderDecoderDecodesUnknownIconvCharsets(): void {
         // iconv does not know ks_c_5601-1987, EncodingAliases maps it to EUC-KR
         self::assertSame("김 현진", (new HeaderDecoder())->decode("=?ks_c_5601-1987?B?seggx/bB+A==?="));
