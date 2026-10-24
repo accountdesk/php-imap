@@ -1081,7 +1081,8 @@ class ImapProtocol extends Protocol {
         $set = $this->buildSet($from, $to);
 
         $command = $this->buildUIDCommand("STORE", $uid);
-        $item = ($mode == '-' ? "-" : "+") . ($item === null ? "FLAGS" : $item) . ($silent ? '.SILENT' : "");
+        $prefix = in_array($mode, ['+', '-'], true) ? $mode : "";
+        $item = $prefix . ($item === null ? "FLAGS" : $item) . ($silent ? '.SILENT' : "");
 
         $response = $this->requestAndResponse($command, [$set, $item, $flags], $silent);
 
@@ -1091,10 +1092,17 @@ class ImapProtocol extends Protocol {
 
         $result = [];
         foreach ($response->data() as $token) {
-            if ($token[1] != 'FETCH' || $token[2][0] != 'FLAGS') {
+            // "* 2 FETCH (FLAGS (\Seen))" or "* 2 FETCH (UID 5 FLAGS (\Seen))" (RFC 3501 6.4.8, Dovecot)
+            if (!is_array($token) || ($token[1] ?? null) !== 'FETCH' || !is_array($token[2] ?? null)) {
                 continue;
             }
-            $result[$token[0]] = $token[2][1];
+            $items = array_values($token[2]);
+            for ($i = 0; $i + 1 < count($items); $i += 2) {
+                if (is_string($items[$i]) && strtoupper($items[$i]) === 'FLAGS') {
+                    $result[$token[0]] = $items[$i + 1];
+                    break;
+                }
+            }
         }
 
 

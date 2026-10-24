@@ -238,7 +238,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testFetchSingleId(): void {
-
         $protocol = $this->connectedProtocol([
             self::step("UID FETCH 5:5 (FLAGS)", ['* 3 FETCH (UID 5 FLAGS (\Seen))', "{tag} OK Fetch completed."]),
             self::step("FETCH 3:3 (FLAGS)", ['* 3 FETCH (FLAGS (\Seen))', "{tag} OK Fetch completed."]),
@@ -336,7 +335,7 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
             self::step('STORE 2 +X-GM-LABELS.SILENT (Work)', ["{tag} OK Success"]),
         ]);
 
-        self::assertTrue($protocol->store(['\Seen'], 5)->successful());
+        self::assertTrue($protocol->store(['\Seen'], 5, null, "+")->successful());
         self::assertTrue($protocol->store(['\Flagged', '\Seen'], 5, 7, "-")->successful());
         self::assertTrue($protocol->store("Work", 2, null, "+", true, IMAP::ST_MSGN, "X-GM-LABELS")->successful());
         $this->assertScriptCompleted();
@@ -376,8 +375,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
      * RFC 3501 6.4.8: the FETCH responses of UID STORE contain the UID - Dovecot sends it first
      */
     public function testStoreByUidReturnsTheNewFlags(): void {
-        $this->markTestSkipped("BUG: store() with \$silent = false only accepts FETCH responses starting with FLAGS - \"* 1 FETCH (UID 5 FLAGS (...))\" is dropped (in addition to the Response iteration bug)");
-
         $protocol = $this->connectedProtocol([
             self::step('UID STORE 5 +FLAGS (\Seen)', ['* 1 FETCH (UID 5 FLAGS (\Seen))', "{tag} OK Store completed."]),
         ]);
@@ -387,8 +384,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testStoreWithoutModeReplacesTheFlags(): void {
-        $this->markTestSkipped("BUG: store() sends +FLAGS for \$mode = null although the docblock says every other mode sets the flags as given (FLAGS)");
-
         $protocol = $this->connectedProtocol([
             self::step('UID STORE 5 FLAGS.SILENT (\Seen)', ["{tag} OK Store completed."]),
         ]);
