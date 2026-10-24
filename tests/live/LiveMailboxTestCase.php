@@ -115,6 +115,7 @@ abstract class LiveMailboxTestCase extends TestCase {
      * @return void
      */
     final protected function requiresCapability(string $capability, string $reason): void {
+        $this->getClient(); // without a live mailbox the test skips for that reason first
         if (!$this->supports($capability)) {
             $this->markTestSkipped(sprintf(
                 "%s does not support '%s' (tests/servers/targets.php): %s", $this->getTarget() ?? "server", $capability, $reason

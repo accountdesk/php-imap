@@ -18,6 +18,9 @@ concurrency:
 
 env:
   PHP_VERSION: "8.3"
+  # docker/build-push-action: no build record artifacts (they break "gh run download") and no build summary
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+  DOCKER_BUILD_SUMMARY: "false"
 
 defaults:
   run:
@@ -72,7 +75,7 @@ jobs:
             {
               echo "#### Coverage"
               echo '```'
-              sed -n '1,12p' build/coverage.txt | grep -E "Summary|Classes|Methods|Lines" | sed 's/\x1b\[[0-9;]*m//g'
+              sed 's/\x1b\[[0-9;]*m//g' build/coverage.txt | sed -n '/Summary:/,/Lines:/p'
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi

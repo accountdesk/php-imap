@@ -66,7 +66,12 @@ def main():
                     name = f"{case.get('class', case.get('classname', ''))}::{case.get('name')}"
                     failures.append(f"- **{label}** `{name}` ({kind}): {first_line(node.text, name) or node.get('type', '')}")
         if output:
-            skips += [f"- **{label}** `{name}`: {reason}" for name, reason in skipped_reasons(output)]
+            by_reason = {}
+            for name, reason in skipped_reasons(output):
+                by_reason.setdefault(reason, []).append(name)
+            for reason, names in by_reason.items():
+                tests = ", ".join(f"`{name}`" for name in names) if len(names) <= 5 else f"{len(names)} tests"
+                skips.append(f"- **{label}** {reason} - {tests}")
 
     print(f"### {title}\n")
     print("| Target | Tests | Passed | Failures | Errors | Skipped | Time | |")
@@ -77,7 +82,7 @@ def main():
         print("\n".join(failures))
         print("\n</details>")
     if skips:
-        print(f"\n<details><summary>Skipped ({len(skips)})</summary>\n")
+        print(f"\n<details><summary>Skipped (by reason)</summary>\n")
         print("\n".join(skips))
         print("\n</details>")
     print()
