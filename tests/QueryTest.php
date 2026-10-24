@@ -213,27 +213,24 @@ class QueryTest extends TestCase {
             ->whereInReplyTo("<def@domain.tld>");
 
         self::assertSame(
-            'HEADER X-Mailer Foo HEADER Message-ID <abc@domain.tld> HEADER In-Reply-To <def@domain.tld>',
+            'HEADER "X-Mailer" "Foo" HEADER "Message-ID" "<abc@domain.tld>" HEADER "In-Reply-To" "<def@domain.tld>"',
             $query->generate_query()
         );
     }
 
     public function testWhereHeaderQuotesValuesWithSpaces(): void {
-        $this->markTestSkipped("BUG: whereHeader() inserts the value unquoted, a value with spaces breaks the SEARCH command");
         $query = $this->query()->whereHeader("Subject", "hello world");
 
-        self::assertSame('HEADER Subject "hello world"', $query->generate_query());
+        self::assertSame('HEADER "Subject" "hello world"', $query->generate_query());
     }
 
     public function testQuotedValuesAreEscaped(): void {
-        $this->markTestSkipped("BUG: generate_query() does not escape '\"' and '\\' inside quoted strings (search criteria injection)");
         $query = $this->query()->whereSubject('foo" OR ALL "')->whereFrom('back\\slash');
 
         self::assertSame('SUBJECT "foo\\" OR ALL \\"" FROM "back\\\\slash"', $query->generate_query());
     }
 
     public function testLineBreaksCannotBeInjected(): void {
-        $this->markTestSkipped("BUG: CRLF inside a search value ends up raw in the IMAP command (command injection)");
         try {
             $raw = $this->query()->whereSubject("x\r\nA001 DELETE INBOX")->generate_query();
             self::assertStringNotContainsString("\r\n", $raw);
@@ -260,7 +257,6 @@ class QueryTest extends TestCase {
     }
 
     public function testFlaggedTakesNoArgument(): void {
-        $this->markTestSkipped("BUG: whereFlagged() requires a value and generates 'FLAGGED \"x\"', FLAGGED has no argument");
         self::assertSame('FLAGGED', $this->query()->flagged()->generate_query());
     }
 
@@ -290,7 +286,7 @@ class QueryTest extends TestCase {
             ->text("bar");
 
         self::assertSame(
-            'UNSEEN FROM "a@b.c" SUBJECT "Foo" SINCE "02-Jan-2020" HEADER Message-ID id@host HEADER In-Reply-To re@host TEXT "bar"',
+            'UNSEEN FROM "a@b.c" SUBJECT "Foo" SINCE "02-Jan-2020" HEADER "Message-ID" "id@host" HEADER "In-Reply-To" "re@host" TEXT "bar"',
             $query->generate_query()
         );
     }

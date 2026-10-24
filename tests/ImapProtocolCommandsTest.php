@@ -400,7 +400,6 @@ class ImapProtocolCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testIdEscapesValues(): void {
-        $this->markTestSkipped("BUG: ID() puts the values into quotes without escaping \" and \\ - the command becomes invalid");
 
         $protocol = $this->connectedProtocol([
             self::step('ID ("name" "my \\"client\\"")', ['* ID NIL', "{tag} OK ID completed."]),

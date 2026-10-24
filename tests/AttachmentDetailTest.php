@@ -49,7 +49,9 @@ class AttachmentDetailTest extends TestCase {
     }
 
     public function testBasicAttributes(): void {
-        $attachment = $this->attachment("Content-Type: application/pdf; name=\"a.pdf\"\r\nContent-Disposition: attachment; filename=\"a.pdf\"\r\nContent-Transfer-Encoding: base64\r\nContent-Description: The PDF", base64_encode("%PDF"));
+        // the attachment only holds a weak reference to its message (#531) - keep the message alive
+        $message = $this->message();
+        $attachment = $this->attachment("Content-Type: application/pdf; name=\"a.pdf\"\r\nContent-Disposition: attachment; filename=\"a.pdf\"\r\nContent-Transfer-Encoding: base64\r\nContent-Description: The PDF", base64_encode("%PDF"), $message);
 
         self::assertSame("%PDF", $attachment->content);
         self::assertSame("%PDF", $attachment->getContent());

@@ -34,7 +34,12 @@ class ProtocolTest extends ScriptedServerTestCase {
     }
 
     public function testCryptoMethod(): void {
-        self::assertSame(STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT, (new ImapProtocol(Config::make()))->getCryptoMethod());
+        // TLS client mask plus TLS 1.2 and 1.3 - never pinned to a single version
+        $method = (new ImapProtocol(Config::make()))->getCryptoMethod();
+        self::assertSame(STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT, $method & STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT);
+        if (defined("STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT")) {
+            self::assertSame(STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT, $method & STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT);
+        }
     }
 
     public function testCertValidation(): void {

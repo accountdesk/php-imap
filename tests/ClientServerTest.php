@@ -174,7 +174,9 @@ class ClientServerTest extends ScriptedServerTestCase {
         }
 
         self::assertStringContainsString("<< * OK [CAPABILITY", $output);
-        self::assertStringContainsString('>> TAG1 LOGIN "user@example.com" "secret"', $output);
+        // the password is redacted from the debug output
+        self::assertStringContainsString('>> TAG1 LOGIN "user@example.com" "***"', $output);
+        self::assertStringNotContainsString('secret', $output);
     }
 
     public function testUidCacheOption(): void {
@@ -401,7 +403,7 @@ class ClientServerTest extends ScriptedServerTestCase {
         $client = $this->connectedClient([
             self::step('ID ("name" "accountdesk")', ['* ID ("name" "Dovecot")', "{tag} OK ID completed."]),
             self::step('GETQUOTA "#user/user@example.com"', ['* QUOTA "#user/user@example.com" (STORAGE 10 512)', "{tag} OK Getquota completed."]),
-            self::step("GETQUOTAROOT INBOX", ['* QUOTAROOT INBOX "User quota"', '* QUOTA "User quota" (STORAGE 10 512)', "{tag} OK Getquotaroot completed."]),
+            self::step('GETQUOTAROOT "INBOX"', ['* QUOTAROOT INBOX "User quota"', '* QUOTA "User quota" (STORAGE 10 512)', "{tag} OK Getquotaroot completed."]),
             self::step('SELECT "INBOX"', ["* 2 EXISTS", "{tag} OK [READ-WRITE] Select completed."]),
             self::step("EXPUNGE", ["* 1 EXPUNGE", "{tag} OK Expunge completed."]),
         ]);

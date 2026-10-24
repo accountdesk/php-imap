@@ -40,7 +40,6 @@ class ConfigTest extends TestCase {
     }
 
     public function testGetReturnsDefaultForMissingNestedKey(): void {
-        $this->markTestSkipped("BUG: Config::get('a.missing') returns the parent value of 'a' instead of the default");
         $config = new Config(["a" => ["b" => 1]]);
 
         self::assertSame("default", $config->get("a.missing", "default"));
@@ -189,7 +188,6 @@ class ConfigTest extends TestCase {
     }
 
     public function testGetClientConfigForUnknownAccount(): void {
-        $this->markTestSkipped("BUG: getClientConfig('unknown') uses the whole 'accounts' array as account config (Config::get() parent value bug)");
         $config = Config::make(["accounts" => ["default" => ["host" => "default.example.com"]]]);
 
         // unknown accounts fall back to the default account settings

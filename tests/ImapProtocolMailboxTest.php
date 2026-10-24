@@ -370,7 +370,7 @@ class ImapProtocolMailboxTest extends ScriptedServerTestCase {
 
     public function testGetQuotaRootRfcExample(): void {
         $protocol = $this->connectedProtocol([
-            self::step("GETQUOTAROOT INBOX", ['* QUOTAROOT INBOX ""', '* QUOTA "" (STORAGE 10 512)', "{tag} OK Getquota completed"]),
+            self::step('GETQUOTAROOT "INBOX"', ['* QUOTAROOT INBOX ""', '* QUOTA "" (STORAGE 10 512)', "{tag} OK Getquota completed"]),
         ]);
 
         self::assertSame([
@@ -391,7 +391,6 @@ class ImapProtocolMailboxTest extends ScriptedServerTestCase {
     }
 
     public function testGetQuotaRootQuotesTheMailboxName(): void {
-        $this->markTestSkipped("BUG: getQuotaRoot() sends the mailbox name unquoted - \"GETQUOTAROOT Sent Items\" is invalid");
 
         $protocol = $this->connectedProtocol([
             self::step('GETQUOTAROOT "Sent Items"', ['* QUOTAROOT "Sent Items" ""', '* QUOTA "" (STORAGE 10 512)', "{tag} OK Getquota completed"]),

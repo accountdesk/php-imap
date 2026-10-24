@@ -226,7 +226,7 @@ class ImapProtocol extends Protocol {
      * @throws RuntimeException
      */
     protected function assumedNextTaggedLine(Response $response, string $start, &$tag): bool {
-        return str_contains($this->nextTaggedLine($response, $tag), $start);
+        return str_starts_with($this->nextTaggedLine($response, $tag), $start);
     }
 
     /**
@@ -239,7 +239,7 @@ class ImapProtocol extends Protocol {
      */
     protected function assumedNextTaggedLineIgnoreUntagged(Response $response, string $start, &$tag): bool {
         $line = $this->nextTaggedLineIgnoreUntagged($response, $tag);
-        return strpos($line, $start) !== false;
+        return str_starts_with($line, $start);
     }
 
     /**
@@ -474,7 +474,7 @@ class ImapProtocol extends Protocol {
      */
     public function write(Response $response, string $data): void {
         $command = $data . "\r\n";
-        if ($this->debug) echo ">> " . $command . "\n";
+        if ($this->debug) echo ">> " . $this->redactCredentials($command) . "\n";
 
         $response->addCommand($command);
 
@@ -484,6 +484,20 @@ class ImapProtocol extends Protocol {
         if ($written === false || ($written === 0 && $command !== "")) {
             throw new RuntimeException('failed to write - connection closed?');
         }
+    }
+
+    /**
+     * Redact passwords and auth tokens from a command line before it is echoed in debug mode
+     * @param string $command
+     *
+     * @return string
+     */
+    protected function redactCredentials(string $command): string {
+        // LOGIN "user" "password" -> keep the user, mask the password
+        $command = preg_replace('/^(TAG\d+ LOGIN\s+("[^"]*"|\S+)\s+).*$/is', '$1"***"', $command);
+        // AUTHENTICATE <mechanism> <base64 credentials> -> mask the credentials
+        $command = preg_replace('/^(TAG\d+ AUTHENTICATE\s+\S+\s+).*$/is', '$1***', $command);
+        return $command;
     }
 
     /**
@@ -514,7 +528,7 @@ class ImapProtocol extends Protocol {
      */
     public function escapeString(array|string $string): array|string {
         if (func_num_args() < 2) {
-            if (str_contains($string, "\n")) {
+            if (str_contains($string, "\n") || str_contains($string, "\r")) {
                 return ['{' . strlen($string) . '}', $string];
             } else {
                 return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $string) . '"';
@@ -1074,7 +1088,7 @@ class ImapProtocol extends Protocol {
         }
 
         $result = [];
-        foreach ($response as $token) {
+        foreach ($response->data() as $token) {
             if ($token[1] != 'FETCH' || $token[2][0] != 'FLAGS') {
                 continue;
             }
@@ -1258,7 +1272,7 @@ class ImapProtocol extends Protocol {
         if (is_array($ids) && !empty($ids)) {
             $token = "(";
             foreach ($ids as $id) {
-                $token .= '"' . $id . '" ';
+                $token .= '"' . str_replace(['\\', '"', "\r", "\n"], ['\\\\', '\\"', '', ''], (string)$id) . '" ';
             }
             $token = rtrim($token) . ")";
         }
@@ -1377,7 +1391,7 @@ class ImapProtocol extends Protocol {
      */
     public function getQuota($username): Response {
         $command = "GETQUOTA";
-        $params = ['"#user/' . $username . '"'];
+        $params = [$this->escapeString('#user/' . $username)];
 
         return $this->requestAndResponse($command, $params);
     }
@@ -1396,7 +1410,7 @@ class ImapProtocol extends Protocol {
      */
     public function getQuotaRoot(string $quota_root = 'INBOX'): Response {
         $command = "GETQUOTAROOT";
-        $params = [$quota_root];
+        $params = [$this->escapeString($quota_root)];
 
         return $this->requestAndResponse($command, $params);
     }

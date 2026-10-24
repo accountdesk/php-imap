@@ -367,8 +367,10 @@ class ImapProtocolTest extends TestCase {
         self::assertSame([true, null], $helpers($data)->call("assumedNextLineIgnoreUntagged", "TAG1 OK"));
         self::assertSame([true, null], $helpers($data)->call("assumedNextLineIgnoreUntagged", "* 3"));
         self::assertSame(["OK [READ-WRITE] done\r\n", "TAG1"], $helpers($data)->call("nextTaggedLineIgnoreUntagged"));
-        self::assertSame([true, "TAG1"], $helpers($data)->call("assumedNextTaggedLineIgnoreUntagged", "READ-WRITE"));
-        self::assertSame([true, "*"], $helpers($data)->call("assumedNextTaggedLine", "EXISTS"));
-        self::assertSame([false, "*"], $helpers($data)->call("assumedNextTaggedLine", "RECENT"));
+        // the status has to be at the start of the tagged line
+        self::assertSame([true, "TAG1"], $helpers($data)->call("assumedNextTaggedLineIgnoreUntagged", "OK"));
+        self::assertSame([false, "TAG1"], $helpers($data)->call("assumedNextTaggedLineIgnoreUntagged", "READ-WRITE"));
+        self::assertSame([true, "*"], $helpers($data)->call("assumedNextTaggedLine", "3 EXISTS"));
+        self::assertSame([false, "*"], $helpers($data)->call("assumedNextTaggedLine", "EXISTS"));
     }
 }

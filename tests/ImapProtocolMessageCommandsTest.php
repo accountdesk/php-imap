@@ -344,7 +344,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testStoreReturnsTheNewFlagsRfcExample(): void {
-        $this->markTestSkipped("BUG: store() with \$silent = false iterates over the Response object instead of its data - the new flags are always []");
 
         $protocol = $this->connectedProtocol([
             self::step('STORE 2:4 +FLAGS (\Deleted)', [

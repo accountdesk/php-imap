@@ -75,7 +75,6 @@ class HeaderDetailTest extends TestCase {
     }
 
     public function testMagicGetterWithCamelCase(): void {
-        $this->markTestSkipped("BUG: Header::__call() lowercases the method name before converting camelCase, getMessageId() looks up 'messageid'");
         $header = $this->header("Message-ID: <a@b>\r\nIn-Reply-To: <c@d>");
 
         self::assertSame("a@b", (string)$header->getMessageId());
@@ -96,10 +95,13 @@ class HeaderDetailTest extends TestCase {
         self::assertSame("=_x=_", $this->header("Content-Type: multipart/mixed;\r\n boundary=\"=_x=_\"")->getBoundary());
         self::assertNull($this->header("Content-Type: text/plain")->getBoundary());
 
-        // the regex can be configured
-        $header = $this->header("Content-Type: multipart/mixed; boundary=\"abc\"\r\nX-Boundary: custom");
-        $header->setOptions(["boundary" => "/X-Boundary: (.*)/"]);
+        // the regex can be configured - it is applied to the Content-Type header only, another header must
+        // not be able to hijack the MIME structure
+        $header = $this->header("Content-Type: multipart/mixed; boundary=\"abc\"; x-sep=custom\r\nX-Boundary: evil");
+        $header->setOptions(["boundary" => "/x-sep=(\\w+)/"]);
         self::assertSame("custom", $header->getBoundary());
+        $header = $this->header("Content-Type: text/plain\r\nX-Evil: boundary=hijack");
+        self::assertNull($header->getBoundary());
     }
 
     public function testRfc822ParseHeadersStructure(): void {
@@ -202,7 +204,6 @@ class HeaderDetailTest extends TestCase {
     }
 
     public function testUserAgentIsNotParsedAsAttributes(): void {
-        $this->markTestSkipped("BUG: Header::extractHeaderExtensions() excludes 'user-agent', but the attribute key is 'user_agent'");
         $header = $this->header("User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv=1)");
 
         self::assertFalse($header->has("rv"));

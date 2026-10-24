@@ -76,7 +76,6 @@ class MessageParsingTest extends TestCase {
     }
 
     public function testHeaderOnlyMessage(): void {
-        $this->markTestSkipped("BUG: Message::fromString() drops all headers when the message has no empty line / body");
         $message = Message::fromString("From: sender@example.com\r\nSubject: Only headers\r\n");
 
         self::assertSame("Only headers", (string)$message->subject);
@@ -246,7 +245,6 @@ class MessageParsingTest extends TestCase {
     }
 
     public function testSameSenderInSeveralHeadersIsNoSpoofing(): void {
-        $this->markTestSkipped("BUG: Header::detectSpoofing() flags a message as spoofed if From and Return-Path/Reply-To contain the same address");
         $message = Message::fromString($this->raw("Return-Path: <sender@example.com>\r\nReply-To: sender@example.com\r\n"));
 
         self::assertFalse($message->getHeader()->has("spoofed"));

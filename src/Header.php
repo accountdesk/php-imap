@@ -88,7 +88,9 @@ class Header {
      */
     public function __call(string $method, array $arguments) {
         if (strtolower(substr($method, 0, 3)) === 'get') {
-            $name = preg_replace('/(.)(?=[A-Z])/u', '$1_', substr(strtolower($method), 3));
+            // Insert the underscores *before* lowercasing, otherwise the CamelCase
+            // lookahead never matches (e.g. getMessageId -> message_id).
+            $name = strtolower(preg_replace('/(.)(?=[A-Z])/u', '$1_', substr($method, 3)));
 
             if (in_array($name, array_keys($this->attributes))) {
                 return $this->attributes[$name];
@@ -177,9 +179,21 @@ class Header {
      */
     public function getBoundary(): ?string {
         $regex = $this->options["boundary"] ?? "/boundary=(.*?(?=;)|(.*))/i";
-        $boundary = $this->find($regex);
 
-        if ($boundary === null) {
+        // Only trust the boundary declared inside the Content-Type header (incl.
+        // folded continuation lines). Searching the whole raw header would let a
+        // crafted header such as "X-Evil: boundary=..." hijack the MIME parsing.
+        $search = $this->raw;
+        if (preg_match('/^content-type:(.*(?:\r?\n[ \t].*)*)/im', $this->raw, $ct)) {
+            $search = $ct[1];
+        }
+
+        $boundary = null;
+        if (preg_match($regex, $search, $match)) {
+            $boundary = $match[1] ?? null;
+        }
+
+        if ($boundary === null || $boundary === "") {
             return null;
         }
 
@@ -569,8 +583,10 @@ class Header {
             } else {
                 $value = (string)$value;
             }
-            // Only parse strings and don't parse any attributes like the user-agent
-            if (!in_array($key, ["user-agent", "subject", "received"])) {
+            // Only parse strings and don't parse any attributes like the user-agent.
+            // Keys are normalized with underscores, so the exclusion list must use them
+            // too (the previous "user-agent" entry never matched anything).
+            if (!in_array($key, ["user_agent", "subject", "received"])) {
                 if (str_contains($value, ";") && str_contains($value, "=")) {
                     $_attributes = $this->read_attribute($value);
                     foreach($_attributes as $_key => $_value) {
@@ -685,6 +701,12 @@ class Header {
 
         if (property_exists($header, 'date')) {
             $date = $header->date;
+
+            // Cap the length before the regex fallbacks below run against this
+            // attacker-controlled value, to avoid catastrophic backtracking (ReDoS).
+            if (is_string($date) && strlen($date) > 255) {
+                $date = substr($date, 0, 255);
+            }
 
             if (preg_match('/\+0580/', $date)) {
                 $date = str_replace('+0580', '+0530', $date);
@@ -860,9 +882,12 @@ class Header {
         foreach($header_keys as $key) {
             $header = $this->get($key);
             foreach ($header->toArray() as $address) {
-                $potential_senders[] = $address->mailbox . "@" . $address->host;
+                $potential_senders[] = strtolower($address->mailbox . "@" . $address->host);
             }
         }
+        // Deduplicate: the same address appearing in e.g. From and Return-Path is the
+        // normal case for delivered mail and must not be treated as spoofing.
+        $potential_senders = array_unique($potential_senders);
         if(count($potential_senders) > 1) {
             $this->set("spoofed", true);
             if($this->config->get('security.detect_spoofing_exception', false)) {

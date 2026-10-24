@@ -126,7 +126,7 @@ class MessageThreadTest extends TestCase {
             $query = $params[0];
             $this->searches[] = [$this->selected, $query];
             $result = [];
-            if (preg_match('/^HEADER (Message-ID|In-Reply-To) (.+)$/', $query, $matches)) {
+            if (preg_match('/^HEADER "?(Message-ID|In-Reply-To)"? "?([^"]+)"?$/', $query, $matches)) {
                 foreach ($this->folders[$this->selected] as $uid => $raw) {
                     if (preg_match('/^'.preg_quote($matches[1], '/').': <'.preg_quote($matches[2], '/').'>/mi', $raw)) {
                         $result[] = $uid;
@@ -199,8 +199,8 @@ class MessageThreadTest extends TestCase {
         })->values()->all());
 
         // the original message is searched in INBOX and in the sent folder
-        self::assertContains(["INBOX", "HEADER In-Reply-To 123@example.com"], $this->searches);
-        self::assertContains(["INBOX/Sent", "HEADER In-Reply-To 123@example.com"], $this->searches);
+        self::assertContains(["INBOX", 'HEADER "In-Reply-To" "123@example.com"'], $this->searches);
+        self::assertContains(["INBOX/Sent", 'HEADER "In-Reply-To" "123@example.com"'], $this->searches);
     }
 
     public function testThreadFromReply(): void {
@@ -210,7 +210,7 @@ class MessageThreadTest extends TestCase {
             return (string)$m->message_id;
         })->values()->all();
         self::assertSame(["456@example.com", "123@example.com"], $ids);
-        self::assertContains(["INBOX", "HEADER Message-ID 123@example.com"], $this->searches);
+        self::assertContains(["INBOX", 'HEADER "Message-ID" "123@example.com"'], $this->searches);
     }
 
     public function testThreadOfUnrelatedMessage(): void {

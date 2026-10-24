@@ -179,6 +179,9 @@ return [
         'debug' => false,
         'unescaped_search_dates' => false,
         'uid_cache' => true,
+        // Maximum nesting depth for multipart messages (guards against crafted
+        // deeply-nested MIME structures exhausting the stack/memory).
+        'max_mime_depth' => 50,
         // 'fallback_date' => "01.01.1970 00:00:00",
         'boundary' => '/boundary=(.*?(?=;)|(.*))/i',
         'message_key' => 'list',
