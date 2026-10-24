@@ -513,21 +513,42 @@ class EncodingAliases {
             return $str;
         }
 
-        try {
-            if (function_exists('iconv') && !self::isUtf7($from) && !self::isUtf7($to)) {
-                return iconv($from, $to, $str);
+        return self::convertString((string)$str, $from, $to);
+    }
+
+    /**
+     * Convert a string between two encodings without ever losing it
+     *
+     * iconv is tried first (characters which can't be converted are dropped), then mbstring. If neither knows
+     * the encodings, the string is returned unchanged - iconv returned false before (with a warning), which
+     * emptied the whole body. The visual / explicit variants of ISO-8859-6 and ISO-8859-8 ("ISO-8859-8-I",
+     * common in Hebrew mail) only differ in the text direction and are converted as their base charset.
+     * @param string $str
+     * @param string $from
+     * @param string $to
+     *
+     * @return string
+     */
+    public static function convertString(string $str, string $from, string $to = "UTF-8"): string {
+        $from = preg_replace('/^(ISO-8859-[68])-[IE]$/i', '$1', $from);
+        $to = preg_replace('/^(ISO-8859-[68])-[IE]$/i', '$1', $to);
+
+        if (function_exists('iconv') && $from !== "" && !self::isUtf7($from) && !self::isUtf7($to)) {
+            $result = @iconv($from, $to . '//IGNORE', $str);
+            if ($result !== false) {
+                return $result;
             }
-            if (!$from) {
-                return mb_convert_encoding($str, $to);
-            }
-            return mb_convert_encoding($str, $to, $from);
-        } catch (\Exception $e) {
-            if (str_contains($from, '-')) {
-                $from = str_replace('-', '', $from);
-                return self::convert($str, $from, $to);
-            }
-            return $str;
         }
+        try {
+            $result = $from === "" ? mb_convert_encoding($str, $to) : mb_convert_encoding($str, $to, $from);
+            if (is_string($result)) {
+                return $result;
+            }
+        } catch (\ValueError) {
+            // unknown to mbstring as well
+        }
+
+        return $str;
     }
 
     /**

@@ -237,6 +237,23 @@ class DecoderTest extends TestCase {
         self::assertSame("ab", $decoder->convertEncoding("a\xFFb", "UTF-8", "ISO-8859-1"));
     }
 
+    public function testConversionNeverLosesTheString(): void {
+        $decoder = new MessageDecoder();
+
+        // iconv does not know the -I / -E variants of ISO-8859-8 / ISO-8859-6 (Hebrew / Arabic mail)
+        self::assertSame("שלום", $decoder->convertEncoding("\xF9\xEC\xE5\xED", "iso-8859-8-i"));
+        self::assertSame("שלום", EncodingAliases::convert("\xF9\xEC\xE5\xED", "ISO-8859-8-E"));
+        // undefined bytes (0x81 in windows-1252) are dropped instead of failing the whole conversion
+        self::assertSame("Preis € x", EncodingAliases::convert("Preis \x80\x81 x", "windows-1252"));
+        self::assertSame("Preis € x", $decoder->convertEncoding("Preis \x80\x81 x", "windows-1252"));
+        // encodings neither iconv nor mbstring know: the string is kept
+        self::assertSame("abc", EncodingAliases::convertString("abc", "x-totally-unknown"));
+        // mbstring is used where iconv fails
+        self::assertSame("中", EncodingAliases::convertString("~{VP~}", "HZ"));
+        // non-string values are passed through
+        self::assertNull($decoder->convertEncoding(null, "ISO-8859-1"));
+    }
+
     public function testStaticHelpers(): void {
         self::assertTrue(Decoder::isUTF8("=?UTF-8?Q?x?="));
         self::assertTrue(Decoder::isUTF8("=?utf-8?B?eA==?="));

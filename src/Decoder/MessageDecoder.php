@@ -12,7 +12,6 @@
 
 namespace Webklex\PHPIMAP\Decoder;
 
-use Exception;
 use Webklex\PHPIMAP\EncodingAliases;
 use Webklex\PHPIMAP\IMAP;
 
@@ -101,18 +100,11 @@ class MessageDecoder extends Decoder {
             return $str;
         }
 
-        if (function_exists('iconv') && !EncodingAliases::isUtf7($from) && !EncodingAliases::isUtf7($to)) {
-            try {
-                return iconv($from, $to.'//IGNORE', $str);
-            } catch (Exception) {
-                return @iconv($from, $to, $str);
-            }
-        } else {
-            if (!$from) {
-                return mb_convert_encoding($str, $to);
-            }
-            return mb_convert_encoding($str, $to, $from);
+        if (!is_string($str)) {
+            return $str;
         }
+
+        return EncodingAliases::convertString($str, $from, $to);
     }
 
 }
