@@ -324,13 +324,16 @@ class Attachment {
                 $name = \imap_utf8($name);
             }
 
-            // check if $name is url encoded
+            // check if $name is percent encoded (RFC 2231) - "+" is no space there
             if (preg_match('/%[0-9A-F]{2}/i', $name)) {
-                $name = urldecode($name);
+                $name = rawurldecode($name);
             }
 
             if (isset($encoding)) {
                 $name = EncodingAliases::convert($name, $encoding);
+            } elseif (!mb_check_encoding($name, "UTF-8")) {
+                // undeclared 8bit name - read as Windows-1252 like undeclared 8bit header text
+                $name = EncodingAliases::convertString($name, "windows-1252");
             }
 
             if($this->config->get('security.sanitize_filenames', true)) {

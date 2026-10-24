@@ -165,6 +165,19 @@ class AttachmentDetailTest extends TestCase {
         self::assertSame("a b.txt", $attachment->decodeName("a%20b.txt"));
         // leading dots are removed
         self::assertSame("hidden", $attachment->decodeName("..hidden"));
+        // "+" stays a plus in percent encoded names
+        self::assertSame("C++ Übersicht.pdf", $attachment->decodeName("utf-8''C++%20%C3%9Cbersicht.pdf"));
+        self::assertSame("a+b.txt", $attachment->decodeName("a+b.txt"));
+        // raw 8bit names (no valid UTF-8) are read as Windows-1252, raw UTF-8 is kept
+        self::assertSame("Grüße.txt", $attachment->decodeName("Gr\xFC\xDFe.txt"));
+        self::assertSame("Grüße.txt", $attachment->decodeName("Grüße.txt"));
+    }
+
+    public function testRaw8bitFilenameParameter(): void {
+        $attachment = $this->attachment("Content-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"Pr\xE4sentation.pdf\"");
+
+        self::assertSame("Präsentation.pdf", $attachment->filename);
+        self::assertSame("Präsentation.pdf", $attachment->name);
     }
 
     public function testSanitizingCanBeDisabled(): void {
