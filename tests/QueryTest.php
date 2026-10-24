@@ -150,7 +150,6 @@ class QueryTest extends TestCase {
     }
 
     public function testUnescapedSearchDatesAppliesToOn(): void {
-        $this->markTestSkipped("BUG: options.unescaped_search_dates only covers SINCE/BEFORE, ON is still quoted");
         $this->client->getConfig()->set("options.unescaped_search_dates", true);
         $query = $this->query()->whereOn(Carbon::create(2023, 4, 5));
 
@@ -240,20 +239,15 @@ class QueryTest extends TestCase {
     }
 
     public function testSpamHelpersUseHeaderSearch(): void {
-        $this->markTestSkipped("BUG: whereNoXSpam()/whereIsXSpam() generate 'X-Spam-Flag NO', which is no valid IMAP search key (HEADER missing)");
-        self::assertSame('HEADER X-Spam-Flag NO', $this->query()->whereNoXSpam()->generate_query());
-        self::assertSame('HEADER X-Spam-Flag YES', $this->query()->whereIsXSpam()->generate_query());
-    }
-
-    public function testSpamHelpersCurrentOutput(): void {
-        // Documents the raw output of the helpers, which is passed through as "CUSTOM" criteria
-        self::assertSame('X-Spam-Flag NO', $this->query()->whereNoXSpam()->generate_query());
-        self::assertSame('X-Spam-Flag YES', $this->query()->whereIsXSpam()->generate_query());
+        // HEADER <field-name> <string> (RFC 3501 6.4.4), quoted like whereHeader()
+        self::assertSame('HEADER "X-Spam-Flag" "NO"', $this->query()->whereNoXSpam()->generate_query());
+        self::assertSame('HEADER "X-Spam-Flag" "YES"', $this->query()->whereIsXSpam()->generate_query());
     }
 
     public function testWhereLanguage(): void {
-        $this->markTestSkipped("BUG: whereLanguage() always throws InvalidWhereQueryCriteriaException (criteria not marked CUSTOM / not a HEADER search)");
-        self::assertSame('HEADER Content-Language de', $this->query()->whereLanguage("de")->generate_query());
+        self::assertSame('HEADER "Content-Language" "de"', $this->query()->whereLanguage("de")->generate_query());
+        // the value cannot break out of the search key
+        self::assertSame('HEADER "Content-Language" "de\\" OR ALL"', $this->query()->whereLanguage('de" OR ALL')->generate_query());
     }
 
     public function testFlaggedTakesNoArgument(): void {

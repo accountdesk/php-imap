@@ -170,7 +170,7 @@ class Query {
                     $query .= $statement[0];
                 } else {
                     if (is_numeric($statement[1]) || (
-                            ($statement[0] === 'SINCE' || $statement[0] === 'BEFORE') &&
+                            in_array($statement[0], ['SINCE', 'BEFORE', 'ON'], true) &&
                             $this->client->getConfig()->get('options.unescaped_search_dates', false)
                     )) {
                         $query .= $statement[0] . ' ' . $statement[1];

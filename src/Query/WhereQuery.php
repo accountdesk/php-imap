@@ -427,7 +427,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereNoXSpam(): static {
-        return $this->where("CUSTOM X-Spam-Flag NO");
+        return $this->whereHeader("X-Spam-Flag", "NO");
     }
 
     /**
@@ -435,7 +435,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereIsXSpam(): static {
-        return $this->where("CUSTOM X-Spam-Flag YES");
+        return $this->whereHeader("X-Spam-Flag", "YES");
     }
 
     /**
@@ -483,7 +483,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereLanguage($country_code): static {
-        return $this->where("CUSTOM Content-Language $country_code");
+        return $this->whereHeader("Content-Language", $country_code);
     }
 
     /**
