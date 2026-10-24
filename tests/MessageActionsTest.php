@@ -201,9 +201,9 @@ class MessageActionsTest extends TestCase {
     }
 
     public function testDeleteWithForceMoveUsesTrashFolder(): void {
-        $this->markTestSkipped("BUG: Message::delete(force_move: true) accesses \$this->config as array (Config object) -> Error");
         $message = $this->message();
-        $this->protocol->method('examineFolder')->willReturn(Response::empty()->setResult(["uidnext" => 0]));
+        // options.common_folders.trash
+        $this->protocol->expects($this->once())->method('examineFolder')->with("INBOX/Trash")->willReturn(Response::empty()->setResult(["uidnext" => 0]));
 
         self::assertTrue($message->delete(false, null, true));
     }

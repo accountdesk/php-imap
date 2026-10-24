@@ -1133,7 +1133,7 @@ class Message {
     public function delete(bool $expunge = true, ?string $trash_path = null, bool $force_move = false): bool {
         $status = $this->setFlag("Deleted");
         if ($force_move) {
-            $trash_path = $trash_path === null ? $this->config["common_folders"]["trash"] : $trash_path;
+            $trash_path = $trash_path === null ? $this->config->get("options.common_folders.trash", "INBOX/Trash") : $trash_path;
             $this->move($trash_path);
         }
         if ($expunge) $this->client->expunge();
