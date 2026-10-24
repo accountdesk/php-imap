@@ -51,15 +51,72 @@ class DecoderTest extends TestCase {
         self::assertSame("abc", $decoder->convertEncoding("abc", "utf8", "UTF-8"));
     }
 
-    public function testMimeHeaderDecodeWithoutExtImap(): void {
-        if (extension_loaded('imap')) {
-            $this->markTestSkipped("ext-imap is loaded, imap_mime_header_decode() is used instead");
-        }
+    public function testMimeHeaderDecodePlainText(): void {
+        // same result as imap_mime_header_decode(): plain text has the charset "default"
         $result = (new HeaderDecoder())->mimeHeaderDecode("plain text");
 
         self::assertCount(1, $result);
-        self::assertSame("ASCII", $result[0]->charset);
+        self::assertSame("default", $result[0]->charset);
         self::assertSame("plain text", $result[0]->text);
+    }
+
+    /**
+     * The pure PHP implementation used without ext-imap must split and decode like imap_mime_header_decode()
+     */
+    public function testDecodeMimeHeaderMatchesImapMimeHeaderDecode(): void {
+        $cases = [
+            "plain text"                                     => [["default", "plain text"]],
+            "=?UTF-8?B?w6TDtsO8?="                           => [["UTF-8", "äöü"]],
+            "=?ISO-8859-1?Q?J=F6rg?= Muster"                 => [["ISO-8859-1", "J\xF6rg"], ["default", " Muster"]],
+            // whitespace between adjacent encoded-words is dropped, other whitespace is kept
+            "Re: =?utf-8?Q?a?= =?utf-8?Q?b?=  tail"          => [["default", "Re: "], ["utf-8", "a"], ["utf-8", "b"], ["default", "  tail"]],
+            "=?utf-8?Q?a?=\r\n =?utf-8?Q?b?="                => [["utf-8", "a"], ["utf-8", "b"]],
+            "=?utf-8?Q?a?=\t=?utf-8?Q?b?="                    => [["utf-8", "a"], ["utf-8", "b"]],
+            "=?utf-8?Q?a?==?utf-8?Q?b?="                     => [["utf-8", "a"], ["utf-8", "b"]],
+            "=?utf-8?Q?a?= x =?utf-8?Q?b?="                  => [["utf-8", "a"], ["default", " x "], ["utf-8", "b"]],
+            // "_" is a space in Q encoding, lower case encodings are valid
+            "=?utf-8?Q?a_b?="                                => [["utf-8", "a b"]],
+            "=?utf-8?q?=C3=A4?="                             => [["utf-8", "ä"]],
+            "=?utf-8?b?w6Q?="                                => [["utf-8", "ä"]],
+            // a space inside a Q word (broken mailers) is accepted like c-client does
+            "=?utf-8?Q?hello world?="                        => [["utf-8", "hello world"]],
+            "=?utf-8?Q?=ZZ?="                                => [["utf-8", "=ZZ"]],
+            "=?utf-8?Q??="                                   => [["utf-8", ""]],
+            // unterminated words and words inside other text
+            "=?utf-8?Q?abc"                                  => [["default", "=?utf-8?Q?abc"]],
+            "a =?utf-8?Q?b?=c"                               => [["default", "a "], ["utf-8", "b"], ["default", "c"]],
+            "(=?utf-8?Q?a?=)"                                => [["default", "("], ["utf-8", "a"], ["default", ")"]],
+            // the bytes are not converted: charsets iconv does not know are converted later via EncodingAliases
+            "=?ks_c_5601-1987?B?seggx/bB+A==?="              => [["ks_c_5601-1987", "\xB1\xE8 \xC7\xF6\xC1\xF8"]],
+            "Grüße"                                          => [["default", "Grüße"]],
+            ""                                               => [],
+            "   "                                            => [["default", "   "]],
+        ];
+        foreach ($cases as $input => $expected) {
+            $actual = array_map(function($part) { return [$part->charset, $part->text]; }, Decoder::decodeMimeHeader((string)$input));
+            self::assertSame($expected, $actual, $input);
+            if (extension_loaded('imap')) {
+                $imap = array_map(function($part) { return [$part->charset, $part->text]; }, \imap_mime_header_decode((string)$input));
+                self::assertSame($imap, $actual, "imap_mime_header_decode(): " . $input);
+            }
+        }
+    }
+
+    public function testDecodeMimeHeaderKeepsUndecodableWords(): void {
+        // c-client decodes these anyway (or fails completely), the pure implementation keeps them as text
+        self::assertSame([["default", "=?utf-8?X?abc?="]], array_map(function($part) {
+            return [$part->charset, $part->text];
+        }, Decoder::decodeMimeHeader("=?utf-8?X?abc?=")));
+        self::assertSame([["default", "=?utf-8?B?!!!?= "], ["utf-8", "ok"]], array_map(function($part) {
+            return [$part->charset, $part->text];
+        }, Decoder::decodeMimeHeader("=?utf-8?B?!!!?= =?utf-8?Q?ok?=")));
+        // the RFC 2231 language suffix is no part of the charset
+        self::assertSame("utf-8", Decoder::decodeMimeHeader("=?utf-8*de?Q?a?=")[0]->charset);
+    }
+
+    public function testHeaderDecoderDecodesUnknownIconvCharsets(): void {
+        // iconv does not know ks_c_5601-1987, EncodingAliases maps it to EUC-KR
+        self::assertSame("김 현진", (new HeaderDecoder())->decode("=?ks_c_5601-1987?B?seggx/bB+A==?="));
     }
 
     public function testHeaderDecoderPlainValues(): void {
@@ -73,9 +130,6 @@ class DecoderTest extends TestCase {
     }
 
     public function testHeaderDecoderEncodedWords(): void {
-        if (!extension_loaded('imap')) {
-            $this->markTestSkipped("Encoded words are only decoded with ext-imap in 'utf-8' mode (see CLAUDE.md baseline)");
-        }
         $decoder = new HeaderDecoder();
 
         self::assertSame("äöü", $decoder->decode("=?UTF-8?B?w6TDtsO8?="));
