@@ -110,10 +110,26 @@ class MessageActionsTest extends TestCase {
 
     public function testMakeWithPeekKeepsMessageUnseen(): void {
         $this->flags = [];
+        $message = Message::make(22, null, $this->client, $this->header, "Body", [], IMAP::FT_PEEK, IMAP::ST_UID);
+
+        // with FT_PEEK the body is fetched with BODY.PEEK[TEXT], which does not set \Seen - nothing to undo,
+        // no STORE (and no "flag deleted" event) per unseen message
+        self::assertCount(0, $this->stores);
+        self::assertFalse($message->hasFlag("seen"));
+
+        $this->client->rfc = "BODY";
+        Message::make(22, null, $this->client, $this->header, "Body", [], IMAP::FT_PEEK, IMAP::ST_UID);
+        self::assertCount(0, $this->stores);
+    }
+
+    /**
+     * An rfc without PEEK variant fetches "<rfc>.TEXT", which sets \Seen - FT_PEEK removes it again
+     */
+    public function testMakeWithPeekRemovesSeenForRfcWithoutPeek(): void {
+        $this->flags = [];
+        $this->client->rfc = "X-CUSTOM";
         Message::make(22, null, $this->client, $this->header, "Body", [], IMAP::FT_PEEK, IMAP::ST_UID);
 
-        // FT_PEEK removes a \Seen flag which might have been set by fetching the body
-        self::assertCount(1, $this->stores);
         self::assertSame([["\\Seen"], 22, 22, "-"], $this->stores[0]);
     }
 

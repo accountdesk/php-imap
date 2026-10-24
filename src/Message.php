@@ -306,7 +306,7 @@ class Message {
         $instance->parseRawHeader($raw_header);
         $instance->parseRawFlags($raw_flags);
         $instance->parseRawBody($raw_body);
-        $instance->peek();
+        $instance->peekAfterFetch();
 
         return $instance;
     }
@@ -655,7 +655,7 @@ class Message {
         $content = $contents[$sequence_id];
 
         $body = $this->parseRawBody($content);
-        $this->peek();
+        $this->peekAfterFetch();
 
         return $body;
     }
@@ -681,8 +681,31 @@ class Message {
     }
 
     /**
-     * Handle auto "Seen" flag handling
+     * Handle auto "Seen" flag handling after the body was fetched
      *
+     * @throws AuthFailedException
+     * @throws ConnectionFailedException
+     * @throws EventNotFoundException
+     * @throws ImapBadRequestException
+     * @throws ImapServerErrorException
+     * @throws MessageFlagException
+     * @throws RuntimeException
+     * @throws ResponseException
+     */
+    protected function peekAfterFetch(): void {
+        // With FT_PEEK the body is fetched with BODY.PEEK[TEXT] for rfc RFC822 / BODY (see ImapProtocol::content()),
+        // which does not set \Seen (RFC 3501 6.4.5) - removing the flag again would only cost a STORE per unseen
+        // message and dispatch a "flag deleted" event for a flag that was never set.
+        if ($this->fetch_options == IMAP::FT_PEEK && in_array($this->client->rfc ?? "RFC822", ["RFC822", "BODY"], true)) {
+            return;
+        }
+        $this->peek();
+    }
+
+    /**
+     * Mark the message as seen (fetch option FT_UID) or remove the seen flag again (FT_PEEK)
+     *
+     * @return void
      * @throws AuthFailedException
      * @throws ConnectionFailedException
      * @throws EventNotFoundException
