@@ -172,8 +172,6 @@ class ImapProtocolTest extends TestCase {
      * and a part ends with an atom ("23)(")
      */
     public function testDecodeLineMultipartBodyStructure(): void {
-        $this->markTestSkipped("BUG: decodeLine() does not split an atom followed by \")(\" - multipart BODYSTRUCTURE responses are parsed wrongly");
-
         self::assertSame(
             ["BODYSTRUCTURE", [
                 ["TEXT", "PLAIN", ["CHARSET", "US-ASCII"], "NIL", "NIL", "7BIT", "1152", "23"],
@@ -182,6 +180,29 @@ class ImapProtocolTest extends TestCase {
             ]],
             $this->decodeLine('BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "US-ASCII") NIL NIL "7BIT" 1152 23)("TEXT" "PLAIN" ("CHARSET" "US-ASCII" "NAME" "cc.diff") "<960723163407.20117h@cac.washington.edu>" "Compiled diff" "BASE64" 4554 73) "MIXED")')
         );
+    }
+
+    /**
+     * Nested multipart (multipart/mixed with a multipart/alternative part) and section specs with parentheses
+     */
+    public function testDecodeLineNestedMultipartAndSections(): void {
+        self::assertSame(
+            ["BODYSTRUCTURE", [
+                [["TEXT", "PLAIN", ["CHARSET", "UTF-8"], "NIL", "NIL", "7BIT", "5", "1"], ["TEXT", "HTML", ["CHARSET", "UTF-8"], "NIL", "NIL", "7BIT", "12", "1"], "ALTERNATIVE"],
+                ["APPLICATION", "PDF", ["NAME", "a.pdf"], "NIL", "NIL", "BASE64", "100"],
+                "MIXED",
+            ]],
+            $this->decodeLine('BODYSTRUCTURE ((("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 5 1)("TEXT" "HTML" ("CHARSET" "UTF-8") NIL NIL "7BIT" 12 1) "ALTERNATIVE")("APPLICATION" "PDF" ("NAME" "a.pdf") NIL NIL "BASE64" 100) "MIXED")')
+        );
+        self::assertSame(
+            ["1", "FETCH", ["UID", "5", "BODY[HEADER.FIELDS.NOT (X-SPAM X-VIRUS)]", "v", "FLAGS", []]],
+            $this->decodeLine('1 FETCH (UID 5 BODY[HEADER.FIELDS.NOT (X-SPAM X-VIRUS)] "v" FLAGS ())')
+        );
+        self::assertSame(["1", "FETCH", ["BODY[1.MIME]", "NIL"]], $this->decodeLine("1 FETCH (BODY[1.MIME] NIL)"));
+        // response codes keep their parts
+        self::assertSame(["OK", "[UIDNEXT", "44292]", "Predicted", "next", "UID"], $this->decodeLine("OK [UIDNEXT 44292] Predicted next UID"));
+        // status text with parentheses
+        self::assertSame(["OK", "Fetch", "completed", ["0.001", "+", "0.000", "secs"], "."], $this->decodeLine("OK Fetch completed (0.001 + 0.000 secs)."));
     }
 
     public function testDecodeLineClosesListsTheServerForgot(): void {
@@ -235,8 +256,6 @@ class ImapProtocolTest extends TestCase {
      * name of the literal
      */
     public function testReadLineHeaderFieldsSection(): void {
-        $this->markTestSkipped("BUG: decodeLine() opens a list for the field list inside BODY[HEADER.FIELDS (...)] - the section name and the literal end up nested");
-
         $fields = "Subject: hi\r\n\r\n";
         self::assertSame(
             ["1", "FETCH", ["UID", "5", "BODY[HEADER.FIELDS (SUBJECT FROM)]", $fields]],

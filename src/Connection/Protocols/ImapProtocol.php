@@ -280,6 +280,31 @@ class ImapProtocol extends Protocol {
                 $tokens = [];
                 $token = substr($token, 1);
             }
+            if ($token !== '' && $token[0] != '"' && $token[0] != '{') {
+                // A section spec may contain spaces and parentheses: BODY[HEADER.FIELDS (SUBJECT FROM)] is one
+                // atom. A bracket at the start ("[UIDNEXT 5]" response code) is split as before.
+                $open = strpos($token, '[');
+                if ($open !== false && $open > 0 && !str_contains(substr($token, $open), ']')) {
+                    $close = strpos($line, ']', $pos);
+                    $next = $close === false ? false : strpos($line, ' ', $close);
+                    if ($next !== false) {
+                        $token .= substr($line, $pos, $next - $pos);
+                        $pos = $next;
+                    }
+                }
+                // An atom directly followed by another list, e.g. the end of a body part in a multipart
+                // BODYSTRUCTURE: 23)("TEXT" - the rest after the closing parentheses is the next token
+                $section_end = strrpos($token, ']');
+                $close = $stack ? strpos($token, ')', $section_end === false ? 0 : $section_end) : false;
+                if ($close !== false) {
+                    $end = $close + strspn($token, ')', $close);
+                    if ($end < strlen($token)) {
+                        $line = substr($token, $end) . substr($line, $pos);
+                        $token = substr($token, 0, $end);
+                        $pos = -1;
+                    }
+                }
+            }
             if ($token !== '' && $token[0] == '"') {
                 // A quoted string ends at a space, at the end of the line or at a closing
                 // parenthesis: (UID 1 INTERNALDATE "22-Oct-2026 10:00:00 +0000").
