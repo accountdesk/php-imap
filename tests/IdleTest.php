@@ -446,7 +446,9 @@ class IdleTest extends TestCase {
         $result = $this->runIdle(["events" => [["at" => 0.3, "do" => "arrive"], ["at" => 1.5, "do" => "arrive"]]], 1, 3,
             function (Message $message, Folder $folder) {
                 $message->setFlag("Seen");
-                $folder->query()->all()->count();
+                // fetching messages with get() creates them via Message::make() - that must select the
+                // folder, not an empty mailbox name
+                self::assertNotEmpty($folder->query()->all()->get());
             });
 
         self::assertSame(["message 1", "message 2"], $result["subjects"]);

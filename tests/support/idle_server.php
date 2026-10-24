@@ -365,6 +365,11 @@ while (microtime(true) < $end) {
                 break;
             case "SELECT":
             case "EXAMINE":
+                if (preg_match('/^""\s*$/', $parts[2])) {
+                    // like Dovecot
+                    $send($stream, "$tag NO [CANNOT] Invalid mailbox name: Name is empty");
+                    break;
+                }
                 $state[$id]["selected"] = true;
                 $state[$id]["queue"] = [];
                 $send($stream, "* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)");

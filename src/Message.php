@@ -295,8 +295,9 @@ class Message {
                                  "message" => $client->getDefaultEvents("message"),
                                  "flag"    => $client->getDefaultEvents("flag"),
                              ]);
-        $instance->setClient($client);
+        // The folder path first: setClient() selects the message folder right away
         $instance->setFolderPath($client->getFolderPath());
+        $instance->setClient($client);
         $instance->setSequence($sequence);
         $instance->setFetchOption($fetch_options);
 
