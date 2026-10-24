@@ -268,8 +268,9 @@ class Folder {
 
     /**
      * Move or rename the current folder
-     * @param string $new_name
+     * @param string $new_name new full name (path), UTF-8 unless $utf7 is true
      * @param boolean $expunge
+     * @param bool $utf7 true if $new_name is already encoded in modified UTF-7 (RFC 3501 5.1.3)
      *
      * @return array
      * @throws ConnectionFailedException
@@ -281,12 +282,15 @@ class Folder {
      * @throws AuthFailedException
      * @throws ResponseException
      */
-    public function move(string $new_name, bool $expunge = true): array {
+    public function move(string $new_name, bool $expunge = true, bool $utf7 = false): array {
         $this->client->checkConnection();
-        $status = $this->client->getConnection()->renameFolder($this->full_name, $new_name)->validatedData();
-        if ($expunge) $this->client->expunge();
+        // the server knows the folder by its (UTF-7) path, full_name is the decoded name
+        $new_path = $utf7 ? $new_name : EncodingAliases::convert($new_name, "utf-8", "UTF7-IMAP");
+        $status = $this->client->getConnection()->renameFolder($this->path, $new_path)->validatedData();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3), without one the server answers BAD
+        if ($expunge && $this->client->getActiveFolder() !== null) $this->client->expunge();
 
-        $folder = $this->client->getFolder($new_name);
+        $folder = $this->client->getFolderByPath($new_path, true);
         $this->dispatch("folder", "moved", $this, $folder);
 
         return $status;
@@ -344,8 +348,9 @@ class Folder {
 
     /**
      * Rename the current folder
-     * @param string $new_name
+     * @param string $new_name new full name (path), UTF-8 unless $utf7 is true
      * @param boolean $expunge
+     * @param bool $utf7 true if $new_name is already encoded in modified UTF-7
      *
      * @return array
      * @throws ConnectionFailedException
@@ -357,8 +362,8 @@ class Folder {
      * @throws AuthFailedException
      * @throws ResponseException
      */
-    public function rename(string $new_name, bool $expunge = true): array {
-        return $this->move($new_name, $expunge);
+    public function rename(string $new_name, bool $expunge = true, bool $utf7 = false): array {
+        return $this->move($new_name, $expunge, $utf7);
     }
 
     /**
@@ -380,7 +385,8 @@ class Folder {
             $this->client->setActiveFolder();
         }
 
-        if ($expunge) $this->client->expunge();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3)
+        if ($expunge && $this->client->getActiveFolder() !== null) $this->client->expunge();
 
         $this->dispatch("folder", "deleted", $this);
 

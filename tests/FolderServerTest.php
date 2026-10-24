@@ -116,15 +116,21 @@ class FolderServerTest extends ScriptedServerTestCase {
      * The server knows the folder by its UTF-7 path ("&AMQ-rger"), not by the decoded name
      */
     public function testRenameFolderWithNonAsciiName(): void {
-        $this->markTestSkipped("BUG: Folder::move() sends the decoded full_name (UTF-8) instead of the UTF-7 path and does not encode the new name");
-
         $client = $this->connectedClient([
             self::step('RENAME "&AMQ-rger" "&AOQ-rger"', ["{tag} OK Rename completed."]),
             self::step('LIST "" "*"', ['* LIST (\HasNoChildren) "/" "&AOQ-rger"', "{tag} OK List completed."]),
+            // an already encoded name is sent as is
+            self::step('RENAME "&AOQ-rger" "Archive/&AMQ-rger"', ["{tag} OK Rename completed."]),
+            self::step('LIST "" "*"', ['* LIST (\HasChildren) "/" Archive', '* LIST (\HasNoChildren) "/" "Archive/&AMQ-rger"', "{tag} OK List completed."]),
         ]);
         $folder = new Folder($client, "&AMQ-rger", "/", []);
+        $folder->setEvent("folder", "moved", RecordingEvent::class);
+        RecordingEvent::$dispatched = [];
 
         $folder->rename("ärger", false);
+        // the moved event gets the folder found under the new path
+        self::assertSame("&AOQ-rger", RecordingEvent::$dispatched[0][1][1]->path);
+        (new Folder($client, "&AOQ-rger", "/", []))->move("Archive/&AMQ-rger", false, true);
         $this->assertScriptCompleted();
     }
 
@@ -132,16 +138,21 @@ class FolderServerTest extends ScriptedServerTestCase {
         $client = $this->connectedClient([
             self::step('SELECT "Archive"', ["* 0 EXISTS", "{tag} OK [READ-WRITE] Select completed."]),
             self::step('DELETE "Archive"', ["{tag} OK Delete completed."]),
+            // no mailbox is selected any more: no EXPUNGE (it would be answered with "BAD No mailbox selected.")
             self::step('DELETE "Other"', ["{tag} OK Delete completed."]),
-            self::step("EXPUNGE", ["{tag} BAD No mailbox selected."]),
+            self::step('SELECT "INBOX"', ["* 0 EXISTS", "{tag} OK [READ-WRITE] Select completed."]),
+            self::step('DELETE "Third"', ["{tag} OK Delete completed."]),
+            self::step("EXPUNGE", ["{tag} OK Expunge completed."]),
         ]);
         $client->openFolder("Archive");
 
         self::assertStringStartsWith("OK Delete completed", (new Folder($client, "Archive", "/", []))->delete(false)[0]);
         self::assertNull($client->getActiveFolder(), "the deleted folder is no longer active");
+        self::assertStringStartsWith("OK Delete completed", (new Folder($client, "Other", "/", []))->delete()[0]);
 
-        $this->expectException(\Webklex\PHPIMAP\Exceptions\ImapServerErrorException::class);
-        (new Folder($client, "Other", "/", []))->delete();
+        $client->openFolder("INBOX");
+        (new Folder($client, "Third", "/", []))->delete();
+        $this->assertScriptCompleted();
     }
 
     public function testOverview(): void {

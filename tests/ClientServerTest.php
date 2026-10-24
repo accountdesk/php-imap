@@ -354,31 +354,26 @@ class ClientServerTest extends ScriptedServerTestCase {
      * Right after connecting no mailbox is selected - EXPUNGE is answered with BAD then (RFC 3501 6.4.3)
      */
     public function testCreateFolderWithoutSelectedMailbox(): void {
-        $this->markTestSkipped("BUG: Client::createFolder() (\$expunge = true by default) sends EXPUNGE without a selected mailbox and fails although the folder was created");
-
         $client = $this->connectedClient([
+            // no EXPUNGE: it would be answered with "BAD No mailbox selected."
             self::step('CREATE "Archive"', ["{tag} OK Create completed."]),
-            self::step("EXPUNGE", ["{tag} BAD No mailbox selected."]),
             self::step('LIST "" "*"', ['* LIST (\HasNoChildren) "/" Archive', "{tag} OK List completed."]),
         ]);
 
         self::assertSame("Archive", $client->createFolder("Archive")->name);
+        $this->assertScriptCompleted();
     }
 
     public function testDeleteFolder(): void {
         $client = $this->connectedClient([
             self::step('SELECT "&AMQ-rger"', ["* 0 EXISTS", "{tag} OK [READ-WRITE] Select completed."]),
             self::step('LIST "" "*"', ['* LIST (\HasNoChildren) "/" INBOX', '* LIST (\HasNoChildren) "/" "&AMQ-rger"', "{tag} OK List completed."]),
+            // the deleted mailbox was the selected one: no EXPUNGE (it would be answered with BAD)
             self::step('DELETE "&AMQ-rger"', ["{tag} OK Delete completed."]),
-            self::step("EXPUNGE", ["{tag} BAD No mailbox selected."]),
         ]);
         $client->openFolder("&AMQ-rger");
 
-        try {
-            $client->deleteFolder("Ärger");
-            self::fail("the EXPUNGE without a selected mailbox should have failed");
-        } catch (ImapServerErrorException) {
-        }
+        self::assertStringStartsWith("OK Delete completed", $client->deleteFolder("Ärger")[0]);
         self::assertNull($client->getActiveFolder(), "the deleted folder is no longer active");
         $this->assertScriptCompleted();
     }

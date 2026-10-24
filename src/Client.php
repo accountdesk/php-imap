@@ -733,7 +733,8 @@ class Client {
 
         $status = $this->connection->createFolder($folder_path)->validatedData();
 
-        if($expunge) $this->expunge();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3), without one the server answers BAD
+        if($expunge && $this->active_folder !== null) $this->expunge();
 
         $folder = $this->getFolderByPath($folder_path, true);
         if($status && $folder) {
@@ -766,7 +767,8 @@ class Client {
             $this->active_folder = null;
         }
         $status = $this->getConnection()->deleteFolder($folder->path)->validatedData();
-        if ($expunge) $this->expunge();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3) - which the deleted one no longer is
+        if ($expunge && $this->active_folder !== null) $this->expunge();
 
         $this->dispatch("folder", "deleted", $folder);
 
