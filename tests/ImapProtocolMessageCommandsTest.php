@@ -238,7 +238,6 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     public function testFetchSingleId(): void {
-        $this->markTestSkipped("BUG: fetch() for a single id (no array, \$to === null) reads past the tagged OK and blocks until the stream times out");
 
         $protocol = $this->connectedProtocol([
             self::step("UID FETCH 5:5 (FLAGS)", ['* 3 FETCH (UID 5 FLAGS (\Seen))', "{tag} OK Fetch completed."]),

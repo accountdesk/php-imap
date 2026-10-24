@@ -892,9 +892,11 @@ class ImapProtocol extends Protocol {
 
             // if we want only one message we can ignore everything else and just return
             if ($to === null && !is_array($from) && ($uid === IMAP::ST_UID ? $tokens[2][$uidKey] == $from : $tokens[0] == $from)) {
-                // we still need to read all lines
-                if (!$this->readLine($response, $tokens, $tag))
-                    return $response->setResult($data);
+                // we still need to read all lines up to the tagged status line
+                while (!$this->readLine($response, $tokens, $tag)) {
+                    // skip the remaining lines
+                }
+                return $response->setResult($data);
             }
             if ($uid === IMAP::ST_UID) {
                 $result[$tokens[2][$uidKey]] = $data;
