@@ -305,7 +305,7 @@ class Query {
      */
     protected function getMessageKey(string $message_key, int $msglist, Message $message): string {
         $key = match ($message_key) {
-            'number' => $message->getMessageNo(),
+            'number' => $message->getMsgn(),
             'list' => $msglist,
             'uid' => $message->getUid(),
             default => $message->getMessageId(),
@@ -363,10 +363,10 @@ class Query {
             $extensions = $raw_messages["extensions"][$uid] ?? [];
 
             $message = $this->make($uid, $msglist, $header, $content, $flag);
-            foreach ($extensions as $key => $extension) {
-                $message->getHeader()->set($key, $extension);
-            }
             if ($message !== null) {
+                foreach ($extensions as $key => $extension) {
+                    $message->getHeader()->set($key, $extension);
+                }
                 $key = $this->getMessageKey($message_key, $msglist, $message);
                 $messages->put("$key", $message);
             }
@@ -420,13 +420,13 @@ class Query {
 
             $this->limit = $chunk_size;
             $this->page = $start_chunk;
-            $handled_messages_count = 0;
+            // count the pages, not the messages: in soft fail mode a chunk can contain fewer messages
+            $last_page = $start_chunk + (int)ceil($available_messages_count / $chunk_size) - 1;
             do {
                 $messages = $this->populate($available_messages);
-                $handled_messages_count += $messages->count();
                 $callback($messages, $this->page);
                 $this->page++;
-            } while ($handled_messages_count < $available_messages_count);
+            } while ($this->page <= $last_page);
             $this->limit = $old_limit;
             $this->page = $old_page;
         }

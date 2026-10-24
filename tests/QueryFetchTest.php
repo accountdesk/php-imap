@@ -266,7 +266,6 @@ class QueryFetchTest extends TestCase {
     }
 
     public function testMessageKeyNumber(): void {
-        $this->markTestSkipped("BUG: message_key 'number' uses Message::getMessageNo() (unknown attribute), all keys are '' and messages overwrite each other");
         $config = $this->client->getConfig();
         $config->set("options.message_key", "number");
         $config->set("options.sequence", IMAP::ST_MSGN);
@@ -339,7 +338,6 @@ class QueryFetchTest extends TestCase {
     }
 
     public function testSoftFailWithExtensions(): void {
-        $this->markTestSkipped("BUG: Query::populate() calls getHeader() on a null message (soft fail + extensions) -> Error");
         $this->addMessage(3, "definitely not a date");
 
         $query = $this->query(["X-GM-LABELS"])->whereAll()->softFail();
@@ -407,7 +405,6 @@ class QueryFetchTest extends TestCase {
     }
 
     public function testChunkedTerminatesWithSoftFailErrors(): void {
-        $this->markTestSkipped("BUG: Query::chunked() loops forever when messages are skipped in soft fail mode");
         $this->addMessage(2, "definitely not a date");
 
         $calls = 0;
