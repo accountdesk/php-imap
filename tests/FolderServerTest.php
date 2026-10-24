@@ -192,6 +192,30 @@ class FolderServerTest extends ScriptedServerTestCase {
         $this->assertScriptCompleted();
     }
 
+    /**
+     * Bare LF and CR are sent as CRLF (RFC 5322 2.3, Cyrus rejects bare newlines), existing CRLF are kept
+     */
+    public function testAppendMessageNormalizesLineEndings(): void {
+        $message = "From: sender@example.com\nSubject: mixed\r\n\nline 1\rline 2\r\n\r\nline 3\n\nend";
+        $expected = "From: sender@example.com\r\nSubject: mixed\r\n\r\nline 1\r\nline 2\r\n\r\nline 3\r\n\r\nend";
+        $crlf = "From: sender@example.com\r\nSubject: crlf\r\n\r\nHello\r\n";
+        $client = $this->connectedClient([
+            self::step('APPEND "INBOX" {' . strlen($expected) . "}\r\n" . $expected, ["{tag} OK [APPENDUID 1385478918 10] Append completed."]),
+            self::step('APPEND "INBOX" {' . strlen($crlf) . "}\r\n" . $crlf, ["{tag} OK [APPENDUID 1385478918 11] Append completed."]),
+            self::step("APPEND \"INBOX\" {17}\r\nSubject: one line", ["{tag} OK [APPENDUID 1385478918 12] Append completed."]),
+        ]);
+        $folder = new Folder($client, "INBOX", "/", []);
+
+        $folder->appendMessage($message);
+        $folder->appendMessage($crlf);
+        $folder->appendMessage("Subject: one line");
+        $this->assertScriptCompleted();
+
+        // the exact bytes of the literals as received by the server
+        $received = $this->receivedLines(1);
+        self::assertSame('APPEND "INBOX" {' . strlen($expected) . "}\r\n" . $expected, substr($received[1], strpos($received[1], " ") + 1));
+    }
+
     public function testQueryOpensTheFolder(): void {
         $client = $this->connectedClient([
             self::step('SELECT "INBOX"', ["* 0 EXISTS", "{tag} OK [READ-WRITE] Select completed."]),

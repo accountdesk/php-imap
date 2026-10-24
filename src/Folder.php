@@ -320,6 +320,7 @@ class Folder {
 
     /**
      * Append a string message to the current mailbox
+     * Line endings are normalized to CRLF (RFC 5322) - bare LF / CR would be rejected by some servers (Cyrus).
      * @param string $message
      * @param array|null $options
      * @param string|Carbon|null $internal_date
@@ -342,6 +343,10 @@ class Folder {
         if ($internal_date instanceof Carbon) {
             $internal_date = $internal_date->format('d-M-Y H:i:s O');
         }
+
+        // RFC 5322 2.3 / RFC 3501 6.3.11: lines end with CRLF - bare LF (and CR) are converted, CRLF is kept.
+        // Cyrus rejects bare newlines ("NO Message contains bare newlines"), other servers store them as is.
+        $message = preg_replace('/\r\n|\r|\n/', "\r\n", $message);
 
         return $this->client->getConnection()->appendMessage($this->path, $message, $options, $internal_date)->validatedData();
     }
