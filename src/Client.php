@@ -689,7 +689,13 @@ class Client {
         }
         $this->checkConnection();
         $this->active_folder = $folder_path;
-        return $this->connection->selectFolder($folder_path)->validatedData();
+        try {
+            return $this->connection->selectFolder($folder_path)->validatedData();
+        } catch (\Throwable $e) {
+            // a failed SELECT leaves no mailbox selected (RFC 3501 6.3.1) - select again next time
+            $this->active_folder = null;
+            throw $e;
+        }
     }
 
     /**
