@@ -278,7 +278,7 @@ class Header {
      *
      * Works like imap_rfc822_parse_headers(): folded lines are unfolded, CRLF and bare LF line endings are
      * accepted, address headers become lists of objects (personal, mailbox, host) plus a raw "<key>address"
-     * value, reply_to and sender default to from, and only the first subject / date / message-id /
+     * value (reply_to and sender stay empty without their headers - c-client copies from), and only the first subject / date / message-id /
      * in-reply-to / references header counts. Every other header is kept as string, or as array if it occurs
      * more than once. If ext-imap is available (and options.rfc822 is enabled) its values are used for the
      * non-address headers - they are the same. Address lists are always parsed by the library itself, because
@@ -341,15 +341,8 @@ class Header {
             };
         }
 
-        // like c-client: without Reply-To / Sender the message is answered to / was sent by "from"
-        if (!empty($headers["from"])) {
-            foreach (["reply_to", "sender"] as $key) {
-                if (empty($headers[$key])) {
-                    $headers[$key] = $headers["from"];
-                    $headers[$key . "address"] = $headers["fromaddress"];
-                }
-            }
-        }
+        // Unlike c-client, reply_to and sender are NOT filled with "from" when the headers are missing:
+        // a reply-to that is not in the message is no information (callers fall back to from themselves).
 
         return (object)array_merge($headers, $imap_headers);
     }

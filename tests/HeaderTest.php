@@ -91,7 +91,8 @@ class HeaderTest extends TestCase {
         self::assertInstanceOf(Carbon::class, $date);
         self::assertSame("2022-12-26 08:07:14 GMT-0800", $date->format("Y-m-d H:i:s T"));
 
-        self::assertSame(51, count($header->getAttributes()));
+        // 49: reply_to and sender are not copied from "from" (c-client did, which made it 51)
+        self::assertSame(49, count($header->getAttributes()));
     }
 
     public function testRfc822ParseHeaders() {

@@ -48,9 +48,10 @@ class OutlookExchangeTest extends FixtureTestCase {
         $from = $message->from->first();
         self::assertSame("Müller, Hans", $from->personal);
         self::assertSame("hans.mueller@example.de", $from->mail);
-        self::assertSame("Müller, Hans <hans.mueller@example.de>", $from->full);
-        // no Reply-To: replies go to the sender
-        self::assertSame("hans.mueller@example.de", $message->reply_to->first()->mail);
+        // quoted: the comma would otherwise split the display name into two addresses
+        self::assertSame("\"Müller, Hans\" <hans.mueller@example.de>", $from->full);
+        // no Reply-To header: reply_to stays empty (the caller replies to from)
+        self::assertSame([], $message->reply_to->all());
         self::assertFalse($message->spoofed->first());
 
         $to = $message->to->all();
