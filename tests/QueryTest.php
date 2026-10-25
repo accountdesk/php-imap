@@ -280,7 +280,7 @@ class QueryTest extends TestCase {
             ->text("bar");
 
         self::assertSame(
-            'UNSEEN FROM "a@b.c" SUBJECT "Foo" SINCE "02-Jan-2020" HEADER "Message-ID" "id@host" HEADER "In-Reply-To" "re@host" TEXT "bar"',
+            'UNSEEN FROM "a@b.c" SUBJECT "Foo" SINCE "02-Jan-2020" HEADER "Message-ID" "<id@host>" HEADER "In-Reply-To" "<re@host>" TEXT "bar"',
             $query->generate_query()
         );
     }
