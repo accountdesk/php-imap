@@ -190,6 +190,23 @@ class Structure {
     }
 
     /**
+     * Header for the body of a multipart message without boundary: text/plain with the charset and the
+     * transfer encoding of the message
+     *
+     * @return Header
+     * @throws InvalidMessageDateException
+     */
+    private function plainTextHeader(): Header {
+        $charset = $this->header->get("charset")->first();
+        $encoding = $this->header->get("content_transfer_encoding")->first();
+        $raw = "Content-Type: text/plain" . (is_string($charset) && $charset !== "" ? "; charset=\"" . addcslashes($charset, '"\\') . "\"" : "") . "\r\n";
+        if (is_string($encoding) && $encoding !== "") {
+            $raw .= "Content-Transfer-Encoding: " . trim($encoding) . "\r\n";
+        }
+        return new Header($raw, $this->header->getConfig());
+    }
+
+    /**
      * Find all available parts
      *
      * @return array
@@ -199,7 +216,9 @@ class Structure {
     public function find_parts(): array {
         if($this->type === IMAP::MESSAGE_TYPE_MULTIPART) {
             if (($boundary = $this->header->getBoundary()) === null)  {
-                throw new MessageContentFetchingException("no content found", 0);
+                // A multipart without (usable) boundary cannot be split. Like an unrecognized subtype
+                // (RFC 2046 5.1.7) its body is taken as plain text instead of rejecting the whole message.
+                return [new Part($this->raw, $this->header->getConfig(), $this->plainTextHeader(), 0)];
             }
 
             return $this->detectParts($boundary, $this->raw, 0, 0);

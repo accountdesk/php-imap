@@ -18,7 +18,6 @@ use Webklex\PHPIMAP\Config;
 use Webklex\PHPIMAP\Decoder\MessageDecoder;
 use Webklex\PHPIMAP\Exceptions\InvalidMessageDateException;
 use Webklex\PHPIMAP\Exceptions\MaskNotFoundException;
-use Webklex\PHPIMAP\Exceptions\MessageContentFetchingException;
 use Webklex\PHPIMAP\Exceptions\MethodNotFoundException;
 use Webklex\PHPIMAP\Exceptions\SpoofingAttemptDetectedException;
 use Webklex\PHPIMAP\Header;
@@ -125,9 +124,18 @@ class MessageParsingTest extends TestCase {
         self::assertSame("first\nsecond", $message->getTextBody());
     }
 
-    public function testMultipartWithoutBoundaryThrows(): void {
-        $this->expectException(MessageContentFetchingException::class);
-        Message::fromString($this->raw("", "--x\r\nContent-Type: text/plain\r\n\r\nfoo\r\n--x--", "multipart/mixed"));
+    public function testMultipartWithoutBoundaryIsReadAsText(): void {
+        // without boundary the body cannot be split - it is kept as plain text instead of rejecting the message
+        // (found by the mail fuzzer of AccountDesk: such a message stopped the import of the mail)
+        $body = "--x\r\nContent-Type: text/plain\r\n\r\nfoo\r\n--x--";
+        $message = Message::fromString($this->raw("", $body, "multipart/mixed"));
+
+        self::assertSame($body, $message->getTextBody());
+        self::assertFalse($message->hasAttachments());
+
+        // charset and transfer encoding of the message apply to the text
+        $message = Message::fromString($this->raw("Content-Transfer-Encoding: quoted-printable\r\n", "Gr=FC=DFe", "multipart/alternative; charset=iso-8859-1"));
+        self::assertSame("Grüße", $message->getTextBody());
     }
 
     public function testMultipartWithUnusedBoundaryHasSinglePart(): void {
