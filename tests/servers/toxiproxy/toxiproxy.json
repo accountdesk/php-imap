@@ -1,0 +1,11 @@
+[
+  {"name": "dovecot23",     "listen": "0.0.0.0:21001", "upstream": "dovecot23:143",  "enabled": true},
+  {"name": "dovecot23-ssl", "listen": "0.0.0.0:21002", "upstream": "dovecot23:993",  "enabled": true},
+  {"name": "dovecot24",     "listen": "0.0.0.0:21003", "upstream": "dovecot24:31143", "enabled": true},
+  {"name": "dovecot24-ssl", "listen": "0.0.0.0:21004", "upstream": "dovecot24:31993", "enabled": true},
+  {"name": "greenmail",     "listen": "0.0.0.0:21005", "upstream": "greenmail:3143", "enabled": true},
+  {"name": "cyrus",         "listen": "0.0.0.0:21006", "upstream": "cyrus:143",      "enabled": true},
+  {"name": "stalwart",      "listen": "0.0.0.0:21007", "upstream": "stalwart:143",   "enabled": true},
+  {"name": "james",         "listen": "0.0.0.0:21008", "upstream": "james:143",      "enabled": true},
+  {"name": "courier",       "listen": "0.0.0.0:21009", "upstream": "courier:143",    "enabled": true}
+]

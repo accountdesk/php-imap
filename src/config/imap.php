@@ -82,6 +82,8 @@ return [
             'password' => '',
             'authentication' => null,
             'rfc' => 'RFC822', // If you are using iCloud, you might want to set this to 'BODY'
+            // HTTP proxy: the connection is tunneled with CONNECT, e.g. 'socket' => 'tcp://proxy.local:3128'
+            // ('request_fulluri' has no effect for CONNECT)
             'proxy' => [
                 'socket' => null,
                 'request_fulluri' => false,
@@ -134,6 +136,8 @@ return [
     |       Default TRUE
     |   -Flag download option
     |       Default TRUE
+    |   -Allow single parts option
+    |       Default TRUE - In multipart/xxx structures return internal parts even if there is only one  
     |   -Soft fail
     |       Default FALSE - Set to TRUE if you want to ignore certain exception while fetching bulk messages
     |   -RFC822
@@ -171,11 +175,15 @@ return [
         'sequence' => \Webklex\PHPIMAP\IMAP::ST_UID,
         'fetch_body' => true,
         'fetch_flags' => true,
+        'allow_single_parts' => true,
         'soft_fail' => false,
         'rfc822' => true,
         'debug' => false,
         'unescaped_search_dates' => false,
         'uid_cache' => true,
+        // Maximum nesting depth for multipart messages (guards against crafted
+        // deeply-nested MIME structures exhausting the stack/memory).
+        'max_mime_depth' => 50,
         // 'fallback_date' => "01.01.1970 00:00:00",
         'boundary' => '/boundary=(.*?(?=;)|(.*))/i',
         'message_key' => 'list',

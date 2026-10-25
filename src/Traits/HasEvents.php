@@ -59,7 +59,7 @@ trait HasEvents {
      * @throws EventNotFoundException
      */
     public function getEvent(string $section, string $event): Event|string {
-        if (isset($this->events[$section])) {
+        if (isset($this->events[$section][$event])) {
             return $this->events[$section][$event];
         }
         throw new EventNotFoundException();

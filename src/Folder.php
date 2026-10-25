@@ -268,8 +268,9 @@ class Folder {
 
     /**
      * Move or rename the current folder
-     * @param string $new_name
+     * @param string $new_name new full name (path), UTF-8 unless $utf7 is true
      * @param boolean $expunge
+     * @param bool $utf7 true if $new_name is already encoded in modified UTF-7 (RFC 3501 5.1.3)
      *
      * @return array
      * @throws ConnectionFailedException
@@ -281,12 +282,15 @@ class Folder {
      * @throws AuthFailedException
      * @throws ResponseException
      */
-    public function move(string $new_name, bool $expunge = true): array {
+    public function move(string $new_name, bool $expunge = true, bool $utf7 = false): array {
         $this->client->checkConnection();
-        $status = $this->client->getConnection()->renameFolder($this->full_name, $new_name)->validatedData();
-        if ($expunge) $this->client->expunge();
+        // the server knows the folder by its (UTF-7) path, full_name is the decoded name
+        $new_path = $utf7 ? $new_name : EncodingAliases::convert($new_name, "utf-8", "UTF7-IMAP");
+        $status = $this->client->getConnection()->renameFolder($this->path, $new_path)->validatedData();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3), without one the server answers BAD
+        if ($expunge && $this->client->getActiveFolder() !== null) $this->client->expunge();
 
-        $folder = $this->client->getFolder($new_name);
+        $folder = $this->client->getFolderByPath($new_path, true);
         $this->dispatch("folder", "moved", $this, $folder);
 
         return $status;
@@ -316,6 +320,7 @@ class Folder {
 
     /**
      * Append a string message to the current mailbox
+     * Line endings are normalized to CRLF (RFC 5322) - bare LF / CR would be rejected by some servers (Cyrus).
      * @param string $message
      * @param array|null $options
      * @param string|Carbon|null $internal_date
@@ -339,13 +344,18 @@ class Folder {
             $internal_date = $internal_date->format('d-M-Y H:i:s O');
         }
 
+        // RFC 5322 2.3 / RFC 3501 6.3.11: lines end with CRLF - bare LF (and CR) are converted, CRLF is kept.
+        // Cyrus rejects bare newlines ("NO Message contains bare newlines"), other servers store them as is.
+        $message = preg_replace('/\r\n|\r|\n/', "\r\n", $message);
+
         return $this->client->getConnection()->appendMessage($this->path, $message, $options, $internal_date)->validatedData();
     }
 
     /**
      * Rename the current folder
-     * @param string $new_name
+     * @param string $new_name new full name (path), UTF-8 unless $utf7 is true
      * @param boolean $expunge
+     * @param bool $utf7 true if $new_name is already encoded in modified UTF-7
      *
      * @return array
      * @throws ConnectionFailedException
@@ -357,8 +367,8 @@ class Folder {
      * @throws AuthFailedException
      * @throws ResponseException
      */
-    public function rename(string $new_name, bool $expunge = true): array {
-        return $this->move($new_name, $expunge);
+    public function rename(string $new_name, bool $expunge = true, bool $utf7 = false): array {
+        return $this->move($new_name, $expunge, $utf7);
     }
 
     /**
@@ -380,7 +390,8 @@ class Folder {
             $this->client->setActiveFolder();
         }
 
-        if ($expunge) $this->client->expunge();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3)
+        if ($expunge && $this->client->getActiveFolder() !== null) $this->client->expunge();
 
         $this->dispatch("folder", "deleted", $this);
 
@@ -460,7 +471,23 @@ class Folder {
 
         $idle_client = $this->client->clone();
         $idle_client->connect();
-        $selected = $idle_client->openFolder($this->path, true);
+
+        // Select the folder on the idle session. UIDNEXT is needed to find messages that arrive while the
+        // session is down - servers that leave it out of the SELECT response (Courier) are asked via STATUS.
+        $select = function () use ($idle_client): array {
+            $selected = $idle_client->openFolder($this->path, true);
+            if (!isset($selected["uidnext"]) && $idle_client->getConnection() instanceof \Webklex\PHPIMAP\Connection\Protocols\ImapProtocol) {
+                try {
+                    $status = $idle_client->getConnection()->folderStatus($this->path, ["UIDNEXT", "UIDVALIDITY"])->validatedData();
+                    $selected["uidnext"] = $status["uidnext"] ?? null;
+                    $selected["uidvalidity"] ??= $status["uidvalidity"] ?? null;
+                } catch (Exceptions\RuntimeException|ImapBadRequestException|ImapServerErrorException|ResponseException) {
+                    // no UIDNEXT - messages that arrive during a reconnect cannot be detected
+                }
+            }
+            return $selected;
+        };
+        $selected = $select();
 
         $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
 
@@ -569,6 +596,11 @@ class Folder {
             // "* OK Still here" restarts the read timeout and stretches the interval up to 2 x $timeout.
             $stream = $connection instanceof \Webklex\PHPIMAP\Connection\Protocols\Protocol ? $connection->getStream() : null;
             $wait = max(1, $timeout - (time() - $last_keepalive));
+            // ... and at most until $max_runtime is reached - a keep-alive interval longer than the
+            // remaining runtime must not keep idle() running past $max_runtime
+            $runtime_left = $max_runtime > 0 ? max(1, $max_runtime - (time() - $start)) : $wait;
+            $cut_by_runtime = $runtime_left < $wait;
+            $wait = min($wait, $runtime_left);
             $shortened = is_resource($stream) && $wait < $timeout;
             if ($shortened) {
                 stream_set_timeout($stream, $wait);
@@ -594,7 +626,7 @@ class Folder {
                 $handle_line($line);
             }
 
-            if ($alive && ($line === null || (time() - $last_keepalive) >= $timeout)) {
+            if ($alive && (($line === null && !$cut_by_runtime) || (time() - $last_keepalive) >= $timeout)) {
                 // Re-issue IDLE as a keep-alive (rfc2177 §3) so the server does not drop the session for
                 // inactivity - after a read timeout, or when the server kept sending other untagged data.
                 // If the roundtrip fails the connection is silently dead - fall through to a reconnect.
@@ -624,8 +656,31 @@ class Folder {
                 // inactivity timeout such as the ~30 minutes granted by RFC 2177). Re-establish the
                 // idle session instead of busy-looping on the dead stream.
                 $connection->reset();
-                $idle_client->connect();
-                $selected = $idle_client->openFolder($this->path, true);
+                // The server may be unreachable for a moment (restart, failover, network blip): retry with a
+                // growing delay instead of giving up - the state needed to deliver the messages that arrive
+                // meanwhile (UIDNEXT) only lives in this loop. Give up after max(timeout, 60) seconds or when
+                // $max_runtime is reached.
+                $delay = 1;
+                $give_up = time() + max($timeout, 60);
+                while (true) {
+                    try {
+                        $idle_client->connect();
+                        $selected = $select();
+                        break;
+                    } catch (ConnectionFailedException|RuntimeException|AuthFailedException $e) {
+                        // A rejected login is final - but a login that got no answer (the network is still
+                        // dead) surfaces as AuthFailedException caused by a RuntimeException and is retried
+                        if ($e instanceof AuthFailedException && !($e->getPrevious() instanceof RuntimeException)) {
+                            throw $e;
+                        }
+                        $runtime_over = $max_runtime > 0 && (time() + $delay - $start) >= $max_runtime;
+                        if (time() + $delay > $give_up || $runtime_over) {
+                            throw $e;
+                        }
+                        sleep($delay);
+                        $delay = min($delay * 2, 30);
+                    }
+                }
                 // connect() created a new protocol instance - pick it up before entering IDLE again
                 $connection = $idle_client->getConnection();
 

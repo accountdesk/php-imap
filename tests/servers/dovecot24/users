@@ -1,0 +1,2 @@
+# Test account of the php-imap server matrix (passwd-file: user:{scheme}password:uid:gid:gecos:home:shell:extra)
+test@example.local:{PLAIN}matrix-Probe-7319::::::

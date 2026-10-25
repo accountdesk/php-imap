@@ -1,0 +1,19 @@
+From: =?iso-8859-8-i?B?4/Dp?= <dani@example.co.il>
+To: anna@example.com
+Subject: =?iso-8859-8-i?B?+ezl7SDy5ezt?=
+Date: Sun, 10 Mar 2024 09:00:00 +0200
+Message-ID: <hebrew@example.co.il>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="heb"
+
+--heb
+Content-Type: text/plain; charset="iso-8859-8-i"
+Content-Transfer-Encoding: 8bit
+
+שלום, מה שלומך?
+--heb
+Content-Type: text/html; charset="windows-1255"
+Content-Transfer-Encoding: base64
+
+PHAgZGlyPSJydGwiPvns5e08L3A+Cg==
+--heb--

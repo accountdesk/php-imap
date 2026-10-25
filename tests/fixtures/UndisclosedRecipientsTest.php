@@ -32,11 +32,13 @@ class UndisclosedRecipientsTest extends FixtureTestCase {
         self::assertFalse($message->hasHTMLBody());
         self::assertEquals("2017-09-27 10:48:51", $message->date->first()->setTimezone('UTC')->format("Y-m-d H:i:s"));
         self::assertEquals("from@there.com", $message->from);
-        self::assertEquals([
-            "Undisclosed Recipients",
-            ""
-                           ], $message->to->map(function ($item) {
-            return $item->mailbox;
-        }));
+        // '"Undisclosed Recipients" <>' is a display name with an empty address (c-client returned the display
+        // name as mailbox plus an "UNEXPECTED_DATA_AFTER_ADDRESS" placeholder)
+        $to = $message->to->all();
+        self::assertCount(1, $to);
+        self::assertSame("Undisclosed Recipients", $to[0]->personal);
+        self::assertSame("", $to[0]->mailbox);
+        self::assertSame("", $to[0]->host);
+        self::assertSame("", $to[0]->mail);
     }
 }

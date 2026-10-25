@@ -33,7 +33,12 @@ class HeaderDecoder extends Decoder {
                 $decoded_values = $this->mimeHeaderDecode($value);
                 $tempValue = "";
                 foreach ($decoded_values as $decoded_value) {
-                    $tempValue .= $this->convertEncoding($decoded_value->text, $decoded_value->charset);
+                    $charset = $decoded_value->charset;
+                    if ($charset === "default" && !mb_check_encoding($decoded_value->text, "UTF-8")) {
+                        // undeclared 8bit text (not UTF-8 as allowed by RFC 6532) - in practice Windows-1252
+                        $charset = "windows-1252";
+                    }
+                    $tempValue .= $this->convertEncoding($decoded_value->text, $charset);
                 }
                 if ($tempValue) {
                     $value = $tempValue;

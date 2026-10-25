@@ -238,7 +238,7 @@ class Client {
             $client->setAccountConfig($key, $config);
         }
         $client->default_message_mask = $this->default_message_mask;
-        $client->default_attachment_mask = $this->default_message_mask;
+        $client->default_attachment_mask = $this->default_attachment_mask;
         return $client;
     }
 
@@ -302,11 +302,6 @@ class Client {
      */
     protected function setEventsFromConfig(): void {
         $this->events = $this->config->get("events");
-        if(isset($config['events'])){
-            foreach($config['events'] as $section => $events) {
-                $this->events[$section] = array_merge($this->events[$section], $events);
-            }
-        }
     }
 
     /**
@@ -400,13 +395,20 @@ class Client {
      * @throws ResponseException
      */
     public function checkConnection(): bool {
+        $active_folder = $this->active_folder;
         try {
             if (!$this->isConnected()) {
                 $this->connect();
+                if ($active_folder !== null) {
+                    $this->openFolder($active_folder, true);
+                }
                 return true;
             }
         } catch (\Throwable) {
             $this->connect();
+            if ($active_folder !== null) {
+                $this->openFolder($active_folder, true);
+            }
         }
         return false;
     }
@@ -604,9 +606,9 @@ class Client {
                 $folder = new Folder($this, $folder_name, $item["delimiter"], $item["flags"]);
 
                 if ($hierarchical && $folder->hasChildren()) {
-                    $pattern = $folder->path.$folder->delimiter.'%';
-
-                    $children = $this->getFolders(true, $pattern, true);
+                    // the parent is a prefix - getFolders() appends the wildcard itself ("Archive/%%" is
+                    // rejected by servers such as GreenMail)
+                    $children = $this->getFolders(true, $folder->path.$folder->delimiter, true);
                     $folder->setChildren($children);
                 }
 
@@ -650,9 +652,7 @@ class Client {
                 $folder = new Folder($this, $folder_name, $item["delimiter"], $item["flags"]);
 
                 if ($hierarchical && $folder->hasChildren()) {
-                    $pattern = $folder->path.$folder->delimiter.'%';
-
-                    $children = $this->getFoldersWithStatus(true, $pattern, true);
+                    $children = $this->getFoldersWithStatus(true, $folder->path.$folder->delimiter, true);
                     $folder->setChildren($children);
                 }
 
@@ -687,7 +687,13 @@ class Client {
         }
         $this->checkConnection();
         $this->active_folder = $folder_path;
-        return $this->connection->selectFolder($folder_path)->validatedData();
+        try {
+            return $this->connection->selectFolder($folder_path)->validatedData();
+        } catch (\Throwable $e) {
+            // a failed SELECT leaves no mailbox selected (RFC 3501 6.3.1) - select again next time
+            $this->active_folder = null;
+            throw $e;
+        }
     }
 
     /**
@@ -731,7 +737,8 @@ class Client {
 
         $status = $this->connection->createFolder($folder_path)->validatedData();
 
-        if($expunge) $this->expunge();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3), without one the server answers BAD
+        if($expunge && $this->active_folder !== null) $this->expunge();
 
         $folder = $this->getFolderByPath($folder_path, true);
         if($status && $folder) {
@@ -764,7 +771,8 @@ class Client {
             $this->active_folder = null;
         }
         $status = $this->getConnection()->deleteFolder($folder->path)->validatedData();
-        if ($expunge) $this->expunge();
+        // EXPUNGE needs a selected mailbox (RFC 3501 6.4.3) - which the deleted one no longer is
+        if ($expunge && $this->active_folder !== null) $this->expunge();
 
         $this->dispatch("folder", "deleted", $folder);
 

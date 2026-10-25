@@ -178,13 +178,16 @@ class ClientTest extends LiveMailboxTestCase {
 
         $status = $client->openFolder("INBOX");
         self::assertTrue(isset($status["flags"]) && count($status["flags"]) > 0);
-        self::assertTrue(($status["uidnext"] ?? 0) > 0);
+        if ($this->supports("uidnext_in_select")) {
+            self::assertTrue(($status["uidnext"] ?? 0) > 0);
+        }
         self::assertTrue(($status["uidvalidity"] ?? 0) > 0);
         self::assertTrue(($status["recent"] ?? -1) >= 0);
         self::assertTrue(($status["exists"] ?? -1) >= 0);
     }
 
     public function testCreateFolder(): void {
+        $this->requiresCapability("special_chars_in_folder_names", "the folder name contains " . $this->getSpecialChars());
         $client = $this->getClient()->connect();
 
         $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
@@ -217,7 +220,9 @@ class ClientTest extends LiveMailboxTestCase {
 
         $status = $client->checkFolder("INBOX");
         self::assertTrue(isset($status["flags"]) && count($status["flags"]) > 0);
-        self::assertTrue(($status["uidnext"] ?? 0) > 0);
+        if ($this->supports("uidnext_in_select")) {
+            self::assertTrue(($status["uidnext"] ?? 0) > 0);
+        }
         self::assertTrue(($status["uidvalidity"] ?? 0) > 0);
         self::assertTrue(($status["recent"] ?? -1) >= 0);
         self::assertTrue(($status["exists"] ?? -1) >= 0);
@@ -231,7 +236,10 @@ class ClientTest extends LiveMailboxTestCase {
     }
 
     public function testId(): void {
+        $this->requiresCapability("id", "the ID command (rfc2971) is an extension");
         $client = $this->getClient()->connect();
+        $capabilities = array_map("strtoupper", (array)$client->getConnection()->getCapabilities()->validatedData());
+        self::assertContains("ID", $capabilities, "targets.php claims ID support, but the server does not announce it");
 
         $info = $client->Id();
         self::assertIsArray($info);
@@ -246,9 +254,7 @@ class ClientTest extends LiveMailboxTestCase {
     }
 
     public function testGetQuotaRoot(): void {
-        if (!getenv("LIVE_MAILBOX_QUOTA_SUPPORT")) {
-            $this->markTestSkipped("Quota support is not enabled");
-        }
+        $this->requiresCapability("quota", "GETQUOTAROOT on INBOX with a storage limit (LIVE_MAILBOX_QUOTA_SUPPORT without target)");
 
         $client = $this->getClient()->connect();
 

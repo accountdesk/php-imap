@@ -46,7 +46,7 @@ class StructureTest extends TestCase {
         }
 
         $raw_header = substr($email, 0, strpos($email, "\r\n\r\n"));
-        $raw_body = substr($email, strlen($raw_header)+8);
+        $raw_body = substr($email, strlen($raw_header) + 4);
 
         $header = new Header($raw_header, $this->config);
         $structure = new Structure($raw_body, $header);

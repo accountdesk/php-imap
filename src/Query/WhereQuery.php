@@ -261,8 +261,9 @@ class WhereQuery extends Query {
      * @return $this
      * @throws InvalidWhereQueryCriteriaException
      */
-    public function whereFlagged(string $value): static {
-        return $this->where('FLAGGED', $value);
+    public function whereFlagged(string $value = ''): static {
+        // FLAGGED is a valueless IMAP search key; any passed value is ignored.
+        return $this->where('FLAGGED');
     }
 
     /**
@@ -426,7 +427,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereNoXSpam(): static {
-        return $this->where("CUSTOM X-Spam-Flag NO");
+        return $this->whereHeader("X-Spam-Flag", "NO");
     }
 
     /**
@@ -434,7 +435,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereIsXSpam(): static {
-        return $this->where("CUSTOM X-Spam-Flag YES");
+        return $this->whereHeader("X-Spam-Flag", "YES");
     }
 
     /**
@@ -446,7 +447,11 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereHeader($header, $value): static {
-        return $this->where("CUSTOM HEADER $header $value");
+        // Quote and escape both parts so a crafted header name or value cannot
+        // break out of the search token (IMAP command injection).
+        $header = str_replace(["\r", "\n", '"'], '', (string)$header);
+        $value = str_replace(['\\', '"'], ['\\\\', '\\"'], str_replace(["\r", "\n"], '', (string)$value));
+        return $this->where("CUSTOM HEADER \"$header\" \"$value\"");
     }
 
     /**
@@ -457,7 +462,23 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereMessageId($messageId): static {
-        return $this->whereHeader("Message-ID", $messageId);
+        return $this->whereHeader("Message-ID", $this->angleBracketMessageId($messageId));
+    }
+
+    /**
+     * Message ids are stored without angle brackets (Message::$message_id), but the header contains them.
+     * Servers that compare the whole header value (Apache James, Stalwart) only find "<id>" - servers with a
+     * substring search (Dovecot) find both.
+     * @param $messageId
+     *
+     * @return string
+     */
+    protected function angleBracketMessageId($messageId): string {
+        $messageId = trim((string)$messageId);
+        if ($messageId === "" || str_starts_with($messageId, "<")) {
+            return $messageId;
+        }
+        return "<" . $messageId . ">";
     }
 
     /**
@@ -468,7 +489,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereInReplyTo($messageId): static {
-        return $this->whereHeader("In-Reply-To", $messageId);
+        return $this->whereHeader("In-Reply-To", $this->angleBracketMessageId($messageId));
     }
 
     /**
@@ -478,7 +499,7 @@ class WhereQuery extends Query {
      * @throws InvalidWhereQueryCriteriaException
      */
     public function whereLanguage($country_code): static {
-        return $this->where("Content-Language $country_code");
+        return $this->whereHeader("Content-Language", $country_code);
     }
 
     /**

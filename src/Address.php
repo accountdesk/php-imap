@@ -47,6 +47,20 @@ class Address {
     }
 
     /**
+     * Quote a display name for use in an address string if it contains RFC 5322 specials - otherwise
+     * "Doe, John <john@example.com>" would be read as two addresses.
+     * @param string $personal
+     *
+     * @return string
+     */
+    public static function quotePersonal(string $personal): string {
+        if (strpbrk($personal, "()<>[]:;@\\,.\"") === false) {
+            return $personal;
+        }
+        return '"' . addcslashes($personal, '"\\') . '"';
+    }
+
+    /**
      * Boot the address
      */
     private function boot(): void {
@@ -57,7 +71,7 @@ class Address {
         }
 
         if($this->full === "" && $this->mail !== "" && $this->personal !== ""){
-            $this->full = $this->personal . " <" . $this->mail . ">";
+            $this->full = self::quotePersonal($this->personal) . " <" . $this->mail . ">";
         }elseif($this->full === "" && $this->mail !== ""){
             $this->full = $this->mail;
         }

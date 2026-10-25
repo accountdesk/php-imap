@@ -1,0 +1,40 @@
+From: Alice Example <alice@example.com>
+To: Bob Example <bob@example.com>
+Subject: Embedded images
+Date: Tue, 02 Jan 2024 10:00:00 +0100
+Message-ID: <embedded-images@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary"
+
+--mixed-boundary
+Content-Type: multipart/related; boundary="related-boundary"
+
+--related-boundary
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+<p>Logo: <img src=3D"cid:logo@example.com"></p><p>Pixel: <img src=3D"cid:pix=
+el@example.com"></p>
+--related-boundary
+Content-Type: image/gif
+Content-Transfer-Encoding: base64
+Content-ID: <logo@example.com>
+Content-Disposition: inline
+
+R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==
+--related-boundary
+Content-Type: image/png; name="pixel.png"
+Content-Transfer-Encoding: base64
+Content-ID: <pixel@example.com>
+Content-Disposition: inline; filename="pixel.png"
+
+iVBORw0KGgpmYWtlLXBuZy1kYXRh
+--related-boundary--
+
+--mixed-boundary
+Content-Type: application/pdf; name="report.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="report.pdf"
+
+JVBERi0xLjQKJWZha2UgcGRmCg==
+--mixed-boundary--
