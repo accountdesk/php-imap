@@ -1,6 +1,7 @@
 # Tests in the same Docker setup as locally (CLAUDE.md, .claude/scripts):
-#  - unit: offline suite in the test image (tests/docker/php.Dockerfile, PHP 8.3 without ext-imap) with coverage,
-#          plus a PHP 8.0 syntax check (composer.json allows ^8.0.2)
+#  - unit: offline suite in the test image (tests/docker/php.Dockerfile, without ext-imap) with coverage on the PHP
+#          versions AccountDesk runs on - 8.3 (Ubuntu 24.04) and 8.5 (Ubuntu 26.04) - plus a PHP 8.0 syntax check
+#          (composer.json allows ^8.0.2)
 #  - imap: one check per IMAP server of the matrix in tests/servers - the complete live suite (tests/live incl.
 #          IdleLiveTest and ServerMatrixTest + live tests of tests/issues) against every target of the server
 name: Tests
@@ -17,7 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PHP_VERSION: "8.3"
+  # the IMAP server checks run on the PHP version of the new servers (Ubuntu 26.04)
+  PHP_VERSION: "8.5"
   # docker/build-push-action: no build record artifacts (they break "gh run download") and no build summary
   DOCKER_BUILD_RECORD_UPLOAD: "false"
   DOCKER_BUILD_SUMMARY: "false"
@@ -28,9 +30,15 @@ defaults:
 
 jobs:
   unit:
-    name: Unit tests (PHP 8.3, offline)
+    name: Unit tests (PHP ${{ matrix.php }}, offline)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.5"]
+    env:
+      PHP_VERSION: ${{ matrix.php }}
 
     steps:
       - name: Checkout
@@ -57,6 +65,7 @@ jobs:
           key: vendor-php${{ env.PHP_VERSION }}-${{ hashFiles('composer.json') }}
 
       - name: Syntax check (PHP 8.0)
+        if: matrix.php == '8.5'
         run: |
           docker run --rm -v "$PWD":/app -w /app php:8.0-cli sh -c \
             'find src tests -name "*.php" -print0 | xargs -0 -n1 php -l > /tmp/lint.txt 2>&1 || { grep -v "^No syntax errors" /tmp/lint.txt; exit 1; }'
@@ -84,7 +93,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: unit-reports
+          name: unit-reports-php${{ matrix.php }}
           path: |
             build/junit-unit.xml
             build/unit.txt

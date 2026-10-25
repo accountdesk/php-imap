@@ -80,7 +80,10 @@ class ProtocolTest extends ScriptedServerTestCase {
      */
     protected function socketOptions(Protocol $protocol, string $transport = "tcp"): array {
         $method = new ReflectionMethod(Protocol::class, "defaultSocketOptions");
-        $method->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $method->setAccessible(true);
+        }
         return $method->invoke($protocol, $transport);
     }
 
@@ -316,7 +319,10 @@ class ProtocolTest extends ScriptedServerTestCase {
         self::assertSame(2, $protocol->getMessageNumber("7")->validatedData());
 
         $cache = new \ReflectionProperty(Protocol::class, "uid_cache");
-        $cache->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $cache->setAccessible(true);
+        }
 
         // reset() clears the cache together with the stream
         $protocol->reset();

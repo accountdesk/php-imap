@@ -40,7 +40,10 @@ class PR621Test extends TestCase
         $ref = new ReflectionClass($client);
         $prop = $ref->getProperty('active_folder');
         // PHP 8.0 only allows access to non-public properties after setAccessible() (no longer needed since 8.1)
-        $prop->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $prop->setAccessible(true);
+        }
         $prop->setValue($client, null);
 
         return $client;

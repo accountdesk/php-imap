@@ -170,9 +170,11 @@ final class Toxiproxy {
             throw new RuntimeException(sprintf("Toxiproxy %s %s failed: %s", $method, $url, $error["message"] ?? "no response"));
         }
 
-        /** @var array $http_response_header set by file_get_contents() */
+        // PHP 8.4+: http_get_last_response_headers(), $http_response_header is deprecated since 8.5
+        // (the old variable is read via get_defined_vars(): mentioning it directly is deprecated on 8.5)
+        $headers = function_exists("http_get_last_response_headers") ? (http_get_last_response_headers() ?? []) : (get_defined_vars()["http_response_header"] ?? []);
         $status = 0;
-        foreach ($http_response_header as $line) {
+        foreach ($headers as $line) {
             if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $matches)) {
                 $status = (int)$matches[1];
             }

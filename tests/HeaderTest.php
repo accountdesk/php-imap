@@ -102,7 +102,10 @@ class HeaderTest extends TestCase {
             ->getMock();
 
         $config = new \ReflectionProperty($mock, 'options');
-        $config->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $config->setAccessible(true);
+        }
         $config->setValue($mock, $this->config->get("options"));
 
         $mockHeader = "Content-Type: text/csv; charset=WINDOWS-1252;  name*0=\"TH_Is_a_F ile name example 20221013.c\"; name*1=sv\r\nContent-Transfer-Encoding: quoted-printable\r\nContent-Disposition: attachment; filename*0=\"TH_Is_a_F ile name example 20221013.c\"; filename*1=\"sv\"\r\n";
@@ -122,7 +125,10 @@ class HeaderTest extends TestCase {
             ->getMock();
 
         $method = new \ReflectionMethod($mock, 'extractHeaderExtensions');
-        $method->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $method->setAccessible(true);
+        }
 
         $mockAttributes = [
             'content_type'              => new Attribute('content_type', 'text/csv; charset=WINDOWS-1252;  name*0="TH_Is_a_F ile name example 20221013.c"; name*1=sv'),
@@ -131,7 +137,10 @@ class HeaderTest extends TestCase {
         ];
 
         $attributes = new \ReflectionProperty($mock, 'attributes');
-        $attributes->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $attributes->setAccessible(true);
+        }
         $attributes->setValue($mock, $mockAttributes);
 
         $method->invoke($mock);
@@ -168,7 +177,10 @@ class HeaderTest extends TestCase {
             ->getMock();
 
         $method = new \ReflectionMethod($mock, 'extractHeaderExtensions');
-        $method->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $method->setAccessible(true);
+        }
 
         $mockAttributes = [
             'content_type'              => new Attribute('content_type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; name="=?utf-8?Q?=D0=A2=D0=B8=D0=BF=D0=BE=D0=B2=D0=BE=D0=B9_?= =?utf-8?Q?=D1=80=D0=B0=D1=81=D1=87=D0=B5=D1=82_=D0=BF?= =?utf-8?Q?=D0=BE=D1=82=D1=80=D0=B5=D0=B1=D0=BB=D0=B5=D0=BD?= =?utf-8?Q?=D0=B8=D1=8F_=D1=8D=D0=BB=D0=B5=D0=BA=D1=82?= =?utf-8?Q?=D1=80=D0=BE=D1=8D=D0=BD=D0=B5=D1=80=D0=B3=D0=B8=D0=B8_=D0=B2_?= =?utf-8?Q?=D0=9A=D0=9F_=D0=97=D0=B2=D0=B5=D0=B7=D0=B4?= =?utf-8?Q?=D0=BD=D1=8B=D0=B9=2Exlsx?="'),
@@ -177,7 +189,10 @@ class HeaderTest extends TestCase {
         ];
 
         $attributes = new \ReflectionProperty($mock, 'attributes');
-        $attributes->setAccessible(true);
+        if (PHP_VERSION_ID < 80100) {
+            // only needed before PHP 8.1, deprecated since 8.5
+            $attributes->setAccessible(true);
+        }
         $attributes->setValue($mock, $mockAttributes);
 
         $method->invoke($mock);

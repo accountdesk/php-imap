@@ -91,14 +91,15 @@ PHP_IMAP=1 .claude/scripts/phpunit.sh                       # Nebenprüfung MIT 
   Langlauf: `IDLE_SOAK_MINUTES=35` (+ optional `IDLE_SOAK_TIMEOUT`).
 
 ### CI (`.github/workflows/tests.yaml`)
-- Check „Unit tests (PHP 8.3, offline)“: Offline-Gesamtlauf mit Coverage im Test-Image ohne ext-imap, dazu `php -l`
-  aller Dateien mit PHP 8.0. Keine PHP-Versionsmatrix.
-- Je ein Check „IMAP: <Server>“: Server + Toxiproxy per `imap-servers.sh`, komplette Live-Suite gegen alle Targets
+- Checks „Unit tests (PHP 8.3 / 8.5, offline)“: Offline-Gesamtlauf mit Coverage im Test-Image ohne ext-imap auf den
+  PHP-Versionen der AccountDesk-Server (24.04 = 8.3, 26.04 = 8.5), dazu `php -l` aller Dateien mit PHP 8.0.
+- Je ein Check „IMAP: <Server>“ (PHP 8.5): Server + Toxiproxy per `imap-servers.sh`, komplette Live-Suite gegen alle Targets
   des Servers. JUnit/Ausgabe als Artifact (`gh run download <run> -n imap-<server>-reports`), Summary pro Check.
 
 ## Konventionen
 
-- PHP `^8.0.2` – keine Features neuer als PHP 8.0 (CI prüft die Syntax mit 8.0, getestet wird mit 8.3).
+- PHP `^8.0.2` – keine Features neuer als PHP 8.0 (CI prüft die Syntax mit 8.0, getestet wird mit 8.3 und 8.5).
+  Keine Deprecations unter 8.5 (auch nicht in Tests: `setAccessible()` nur für PHP < 8.1).
   Parameter mit `null`-Default immer explizit nullable (`?Type $x = null`, PHP 8.4).
 - Stil wie im Bestand: 4 Spaces, öffnende Klammer auf derselben Zeile, `snake_case` für Variablen/Optionen,
   `camelCase` für Methoden, PHPDoc mit `@throws` an öffentlichen Methoden, Datei-Header-Kommentar bei neuen Dateien.
