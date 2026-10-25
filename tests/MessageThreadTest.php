@@ -99,6 +99,12 @@ class MessageThreadTest extends TestCase {
         return $result;
     }
 
+    /** EXAMINE leaves UIDNEXT out (Courier) */
+    protected bool $uidnext_via_status_only = false;
+
+    /** @var array<int, string> folders asked via STATUS */
+    protected array $status_requests = [];
+
     /**
      * Create a protocol mockup serving the fake folders
      *
@@ -113,7 +119,17 @@ class MessageThreadTest extends TestCase {
         });
         $this->protocol->method('examineFolder')->willReturnCallback(function($folder) {
             $uids = array_keys($this->folders[$folder]);
-            return Response::empty()->setResult(["exists" => count($uids), "uidnext" => $uids ? max($uids) + 1 : 1]);
+            $status = ["exists" => count($uids), "uidnext" => $uids ? max($uids) + 1 : 1];
+            if ($this->uidnext_via_status_only) {
+                // like Courier: UIDNEXT only via STATUS
+                unset($status["uidnext"]);
+            }
+            return Response::empty()->setResult($status);
+        });
+        $this->protocol->method('folderStatus')->willReturnCallback(function($folder) {
+            $this->status_requests[] = $folder;
+            $uids = array_keys($this->folders[$folder]);
+            return Response::empty()->setResult(["uidnext" => $uids ? max($uids) + 1 : 1]);
         });
         $this->protocol->method('folders')->willReturnCallback(function() {
             $folders = [];
@@ -126,7 +142,7 @@ class MessageThreadTest extends TestCase {
             $query = $params[0];
             $this->searches[] = [$this->selected, $query];
             $result = [];
-            if (preg_match('/^HEADER "?(Message-ID|In-Reply-To)"? "?([^"]+)"?$/', $query, $matches)) {
+            if (preg_match('/^HEADER "?(Message-ID|In-Reply-To)"? "?<?([^"<>]+)>?"?$/', $query, $matches)) {
                 foreach ($this->folders[$this->selected] as $uid => $raw) {
                     if (preg_match('/^'.preg_quote($matches[1], '/').': <'.preg_quote($matches[2], '/').'>/mi', $raw)) {
                         $result[] = $uid;
@@ -199,8 +215,8 @@ class MessageThreadTest extends TestCase {
         })->values()->all());
 
         // the original message is searched in INBOX and in the sent folder
-        self::assertContains(["INBOX", 'HEADER "In-Reply-To" "123@example.com"'], $this->searches);
-        self::assertContains(["INBOX/Sent", 'HEADER "In-Reply-To" "123@example.com"'], $this->searches);
+        self::assertContains(["INBOX", 'HEADER "In-Reply-To" "<123@example.com>"'], $this->searches);
+        self::assertContains(["INBOX/Sent", 'HEADER "In-Reply-To" "<123@example.com>"'], $this->searches);
     }
 
     public function testThreadFromReply(): void {
@@ -210,7 +226,7 @@ class MessageThreadTest extends TestCase {
             return (string)$m->message_id;
         })->values()->all();
         self::assertSame(["456@example.com", "123@example.com"], $ids);
-        self::assertContains(["INBOX", 'HEADER "Message-ID" "123@example.com"'], $this->searches);
+        self::assertContains(["INBOX", 'HEADER "Message-ID" "<123@example.com>"'], $this->searches);
     }
 
     public function testThreadOfUnrelatedMessage(): void {
@@ -232,6 +248,21 @@ class MessageThreadTest extends TestCase {
 
         self::assertCount(1, RecordingEvent::$dispatched);
         self::assertSame([$message, $copy], RecordingEvent::$dispatched[0][1]);
+    }
+
+    public function testCopyAndMoveWithoutUidnextInExamine(): void {
+        // Courier leaves UIDNEXT out of EXAMINE - copy()/move() have to ask via STATUS, otherwise the new
+        // message cannot be found and they return null although the server copied it
+        $this->uidnext_via_status_only = true;
+
+        $copy = $this->message(1)->copy("Archive");
+        self::assertInstanceOf(Message::class, $copy);
+        self::assertSame("Nuu", (string)$copy->subject);
+
+        $moved = $this->message(2)->move("Archive");
+        self::assertInstanceOf(Message::class, $moved);
+        self::assertSame("Wut", (string)$moved->subject);
+        self::assertSame(["Archive", "Archive"], $this->status_requests);
     }
 
     public function testMoveWithExpunge(): void {

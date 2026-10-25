@@ -1034,7 +1034,7 @@ class Message {
         // the server knows the folder by its modified UTF-7 path (RFC 3501 5.1.3)
         if (!$utf7) $folder_path = EncodingAliases::convert($folder_path, "utf-8", "UTF7-IMAP");
         $this->client->openFolder($folder_path);
-        $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
+        $status = $this->fetchUidNextStatus($folder_path);
 
         if (isset($status["uidnext"])) {
             $next_uid = $status["uidnext"];
@@ -1079,7 +1079,7 @@ class Message {
         // the server knows the folder by its modified UTF-7 path (RFC 3501 5.1.3)
         if (!$utf7) $folder_path = EncodingAliases::convert($folder_path, "utf-8", "UTF7-IMAP");
         $this->client->openFolder($folder_path);
-        $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
+        $status = $this->fetchUidNextStatus($folder_path);
 
         if (isset($status["uidnext"])) {
             $next_uid = $status["uidnext"];
@@ -1097,6 +1097,27 @@ class Message {
         }
 
         return null;
+    }
+
+    /**
+     * EXAMINE the target folder of a copy / move. Servers that leave UIDNEXT out of the EXAMINE response
+     * (Courier) are asked via STATUS - without it the copied message cannot be found.
+     * @param string $folder_path UTF-7 path
+     *
+     * @return array
+     * @throws AuthFailedException
+     * @throws ConnectionFailedException
+     * @throws ImapBadRequestException
+     * @throws ImapServerErrorException
+     * @throws RuntimeException
+     * @throws ResponseException
+     */
+    protected function fetchUidNextStatus(string $folder_path): array {
+        $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
+        if (!isset($status["uidnext"])) {
+            $status["uidnext"] = $this->client->getConnection()->folderStatus($folder_path, ["UIDNEXT"])->validatedData()["uidnext"] ?? null;
+        }
+        return $status;
     }
 
     /**
