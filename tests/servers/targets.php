@@ -87,7 +87,7 @@ return [
         "delimiter"    => "/",
         "capabilities" => [
             "children"                => false, // announces CHILDREN, but LIST has no \HasChildren / \HasNoChildren
-            "search_header_substring" => false, // HEADER Message-ID "123@example.com" does not match <123@example.com>
+            "search_message_id_header" => false, // SEARCH HEADER Message-ID / In-Reply-To never matches (Subject/From do)
         ],
         "notes"        => "Stalwart 0.16.24, provisioned via its JMAP management API on every start. "
             . "IMAP4rev2; default folders 'Sent Items', 'Deleted Items', 'Junk Mail'. Stores messages verbatim "
@@ -99,7 +99,6 @@ return [
         "delimiter"    => ".",
         "capabilities" => [
             "search_quoted_date"            => false, // UID SEARCH SINCE "23-Oct-2026" -> BAD Illegal arguments
-            "search_header_substring"       => false, // HEADER Message-ID "123@example.com" does not match <123@example.com>
             "special_chars_in_folder_names" => false, // NO CREATE processing failed for "%"
         ],
         "notes"        => "Apache James 3.9.1 (demo image, JPA/Derby). Rejects commands pipelined behind LOGIN. "

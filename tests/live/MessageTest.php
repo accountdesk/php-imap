@@ -124,8 +124,8 @@ class MessageTest extends LiveMailboxTestCase {
      * @throws GetMessagesFailedException
      */
     public function testThread(): void {
-        $this->requiresCapability("search_header_substring", "Message::thread() searches HEADER Message-ID / In-Reply-To with the id without <>");
         $client = $this->getClient();
+        $this->requiresCapability("search_message_id_header", "Message::thread() searches HEADER Message-ID / In-Reply-To, which the server never matches");
 
         $folder = $this->createTestFolder("php-imap-thread");
 

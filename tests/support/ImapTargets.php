@@ -66,12 +66,12 @@ final class ImapTargets {
         // SEARCH accepts dates as quoted strings (rfc3501: date = date-text / DQUOTE date-text DQUOTE)
         "search_quoted_date"            => true,
         // SEARCH HEADER <field> <string> matches substrings (rfc3501) also in Message-ID / In-Reply-To
-        "search_header_substring"       => true,
         // SEARCH SUBJECT only looks at the subject of the message itself (rfc3501: envelope), not at attached messages
         "search_subject_envelope_only"  => true,
         // LIST patterns with a wildcard before the last character ("x.%%" - Client::getFolders() appends % to
         // the parent it is given, also when it recurses into children)
         "list_inner_wildcard"           => true,
+        "search_message_id_header"      => true,
         // folder names containing LiveMailboxTestCase::SPECIAL_CHARS (\ " % | ! < > umlauts, CJK, ...)
         "special_chars_in_folder_names" => true,
     ];
