@@ -270,7 +270,7 @@ class ClientServerTest extends ScriptedServerTestCase {
                 "{tag} OK List completed (0.001 + 0.000 secs).",
             ]),
             // children of Archive ("%%" matches like "%")
-            self::step('LIST "" "Archive/%%"', [
+            self::step('LIST "" "Archive/%"', [
                 '* LIST (\HasNoChildren) "/" Archive/2024',
                 '* LIST (\HasNoChildren \Marked) "/" "Archive/&AMQ-rger"',
                 "{tag} OK List completed (0.001 + 0.000 secs).",
@@ -351,7 +351,7 @@ class ClientServerTest extends ScriptedServerTestCase {
     public function testGetFoldersWithStatusHierarchical(): void {
         $client = $this->connectedClient([
             self::step('LIST "" "%"', ['* LIST (\HasChildren) "/" Archive', "{tag} OK List completed."]),
-            self::step('LIST "" "Archive/%%"', ['* LIST (\HasNoChildren) "/" Archive/2024', "{tag} OK List completed."]),
+            self::step('LIST "" "Archive/%"', ['* LIST (\HasNoChildren) "/" Archive/2024', "{tag} OK List completed."]),
             self::step('EXAMINE "Archive/2024"', ["* 1 EXISTS", "{tag} OK [READ-ONLY] Examine completed."]),
             self::step('EXAMINE "Archive"', ["* 0 EXISTS", "{tag} OK [READ-ONLY] Examine completed."]),
         ]);

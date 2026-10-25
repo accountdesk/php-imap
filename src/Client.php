@@ -606,9 +606,9 @@ class Client {
                 $folder = new Folder($this, $folder_name, $item["delimiter"], $item["flags"]);
 
                 if ($hierarchical && $folder->hasChildren()) {
-                    $pattern = $folder->path.$folder->delimiter.'%';
-
-                    $children = $this->getFolders(true, $pattern, true);
+                    // the parent is a prefix - getFolders() appends the wildcard itself ("Archive/%%" is
+                    // rejected by servers such as GreenMail)
+                    $children = $this->getFolders(true, $folder->path.$folder->delimiter, true);
                     $folder->setChildren($children);
                 }
 
@@ -652,9 +652,7 @@ class Client {
                 $folder = new Folder($this, $folder_name, $item["delimiter"], $item["flags"]);
 
                 if ($hierarchical && $folder->hasChildren()) {
-                    $pattern = $folder->path.$folder->delimiter.'%';
-
-                    $children = $this->getFoldersWithStatus(true, $pattern, true);
+                    $children = $this->getFoldersWithStatus(true, $folder->path.$folder->delimiter, true);
                     $folder->setChildren($children);
                 }
 
