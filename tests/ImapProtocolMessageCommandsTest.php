@@ -430,6 +430,7 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
 
     public function testMove(): void {
         $protocol = $this->connectedProtocol([
+            self::step("CAPABILITY", ["* CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS MOVE", "{tag} OK Capability completed."]),
             self::step('UID MOVE 5 "Archive"', [
                 "* OK [COPYUID 1385478918 5 10] Moved UIDs.",
                 "* 1 EXPUNGE",
@@ -448,16 +449,15 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
     }
 
     /**
-     * Servers without the MOVE extension (RFC 6851) reject the command - moveMessage() is meant to fall back
-     * to COPY, STORE \Deleted and EXPUNGE.
+     * Servers without the MOVE extension (RFC 6851) do not get a MOVE at all - Courier answers it with NO, which
+     * looks like a real failure. moveMessage() uses COPY, STORE \Deleted and EXPUNGE instead.
      */
     public function testMoveFallsBackToCopyWithoutMoveCapability(): void {
         $protocol = $this->connectedProtocol([
-            self::step('UID MOVE 5 "Archive"', ["{tag} BAD Error in IMAP command UID MOVE: Unknown command (0.001 + 0.000 secs)."]),
+            self::step("CAPABILITY", ["* CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS", "{tag} OK Capability completed."]),
             self::step('UID COPY 5 "Archive"', ["{tag} OK [COPYUID 1385478918 5 10] Copy completed."]),
             self::step('UID STORE 5 +FLAGS.SILENT (\Deleted)', ["{tag} OK Store completed."]),
             self::step("EXPUNGE", ["* 1 EXPUNGE", "{tag} OK Expunge completed."]),
-            self::step('UID MOVE 6,7 "Archive"', ["{tag} BAD Error in IMAP command UID MOVE: Unknown command (0.001 + 0.000 secs)."]),
             self::step('UID COPY 6,7 "Archive"', ["{tag} OK [COPYUID 1385478918 6:7 11:12] Copy completed."]),
             self::step('UID STORE 6:6 +FLAGS.SILENT (\Deleted)', ["{tag} OK Store completed."]),
             self::step('UID STORE 7:7 +FLAGS.SILENT (\Deleted)', ["{tag} OK Store completed."]),
@@ -474,6 +474,7 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
      */
     public function testMoveRejectedWithNoDoesNotFallBack(): void {
         $protocol = $this->connectedProtocol([
+            self::step("CAPABILITY", ["* CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS MOVE", "{tag} OK Capability completed."]),
             self::step('UID MOVE 5 "Nope"', ["{tag} NO [TRYCREATE] Mailbox doesn't exist: Nope (0.001 + 0.000 secs)."]),
             self::step('UID MOVE 5,6 "Nope"', ["{tag} NO [TRYCREATE] Mailbox doesn't exist: Nope (0.001 + 0.000 secs)."]),
         ]);
@@ -494,7 +495,7 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
      */
     public function testMoveFallbackStopsWhenCopyFails(): void {
         $protocol = $this->connectedProtocol([
-            self::step('UID MOVE 5 "Archive"', ["{tag} BAD Error in IMAP command UID MOVE: Unknown command (0.001 + 0.000 secs)."]),
+            self::step("CAPABILITY", ["* CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS", "{tag} OK Capability completed."]),
             self::step('UID COPY 5 "Archive"', ["{tag} NO [OVERQUOTA] Quota exceeded (mailbox for user is full) (0.001 + 0.000 secs)."]),
         ], ["greeting" => "* OK [CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS] Server ready."]);
 
@@ -504,6 +505,22 @@ class ImapProtocolMessageCommandsTest extends ScriptedServerTestCase {
         } catch (ImapServerErrorException $e) {
             self::assertStringContainsString("[OVERQUOTA]", $e->getMessage());
         }
+        $this->assertScriptCompleted();
+    }
+
+    /**
+     * A server that announces MOVE but does not know it (BAD) still gets the fallback
+     */
+    public function testMoveAnnouncedButUnknownFallsBack(): void {
+        $protocol = $this->connectedProtocol([
+            self::step("CAPABILITY", ["* CAPABILITY IMAP4rev1 LITERAL+ UIDPLUS MOVE", "{tag} OK Capability completed."]),
+            self::step('UID MOVE 5 "Archive"', ["{tag} BAD Unknown command."]),
+            self::step('UID COPY 5 "Archive"', ["{tag} OK Copy completed."]),
+            self::step('UID STORE 5 +FLAGS.SILENT (\Deleted)', ["{tag} OK Store completed."]),
+            self::step("EXPUNGE", ["* 1 EXPUNGE", "{tag} OK Expunge completed."]),
+        ]);
+
+        self::assertTrue($protocol->moveMessage("Archive", 5)->successful());
         $this->assertScriptCompleted();
     }
 

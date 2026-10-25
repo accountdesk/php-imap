@@ -36,6 +36,13 @@ use Webklex\PHPIMAP\IMAP;
 class ImapProtocol extends Protocol {
 
     /**
+     * Whether the server announces MOVE (null = not yet asked), see supportsMove()
+     * @var bool|null
+     */
+    protected ?bool $supports_move = null;
+
+
+    /**
      * Request noun
      * @var int
      */
@@ -678,6 +685,7 @@ class ImapProtocol extends Protocol {
      */
     public function reset(): void {
         $this->stream = null;
+        $this->supports_move = null;
         $this->uid_cache = [];
     }
 
@@ -1250,11 +1258,13 @@ class ImapProtocol extends Protocol {
         $set = $this->buildSet($from, $to);
         $command = $this->buildUIDCommand("MOVE", $uid);
 
-        try {
-            return $this->requestAndResponse($command, [$set, $this->escapeString($folder)], true);
-        } catch (ImapServerErrorException $e) {
-            if (!$this->isUnknownCommand($e)) {
-                throw $e;
+        if ($this->supportsMove()) {
+            try {
+                return $this->requestAndResponse($command, [$set, $this->escapeString($folder)], true);
+            } catch (ImapServerErrorException $e) {
+                if (!$this->isUnknownCommand($e)) {
+                    throw $e;
+                }
             }
         }
         // RFC4315 fallback to COPY, STORE and EXPUNGE.
@@ -1280,6 +1290,26 @@ class ImapProtocol extends Protocol {
     }
 
     /**
+     * Does the server announce MOVE (RFC 6851)? Servers without it may answer MOVE with NO instead of BAD
+     * (Courier: "NO Error in IMAP command received by server") - then MOVE must not be sent at all.
+     * The answer is cached per connection.
+     *
+     * @return bool
+     */
+    protected function supportsMove(): bool {
+        if ($this->supports_move === null) {
+            try {
+                $capabilities = $this->getCapabilities()->validatedData();
+                $this->supports_move = in_array("MOVE", array_map("strtoupper", (array)$capabilities), true);
+            } catch (ImapServerErrorException|ImapBadRequestException|ResponseException) {
+                // unknown - try MOVE and fall back on BAD
+                $this->supports_move = true;
+            }
+        }
+        return $this->supports_move;
+    }
+
+    /**
      * Move multiple messages to the target folder
      *
      * @param array $messages List of message identifiers
@@ -1298,11 +1328,13 @@ class ImapProtocol extends Protocol {
         $set = implode(',', $messages);
         $tokens = [$set, $this->escapeString($folder)];
 
-        try {
-            return $this->requestAndResponse($command, $tokens, true);
-        } catch (ImapServerErrorException $e) {
-            if (!$this->isUnknownCommand($e)) {
-                throw $e;
+        if ($this->supportsMove()) {
+            try {
+                return $this->requestAndResponse($command, $tokens, true);
+            } catch (ImapServerErrorException $e) {
+                if (!$this->isUnknownCommand($e)) {
+                    throw $e;
+                }
             }
         }
         // RFC4315 fallback to COPY, STORE and EXPUNGE (see moveMessage())
