@@ -161,14 +161,29 @@ class HeaderAddressTest extends TestCase {
         self::assertSame("", (string)$header->get("ccaddress"));
     }
 
-    public function testReplyToAndSenderDefaultToFrom(): void {
-        // like imap_rfc822_parse_headers(): replies go to "from" if there is no Reply-To header
+    public function testFullAddressCanBeParsedBackIntoTheSameAddress(): void {
+        // Address::$full is a valid address string: display names with specials are quoted, otherwise
+        // "Müller, Hans <hans@example.de>" would be two addresses for every consumer that parses it
+        $names = ["Müller, Hans", 'Say "hi" \\ bye', "postmaster@", "(comment)", "Max Mustermann", "Jörg Kühn", ""];
+        foreach ($names as $name) {
+            $address = new \Webklex\PHPIMAP\Address((object)["personal" => $name, "mailbox" => "user", "host" => "example.de"]);
+            $parsed = (new Header("To: " . $address->full, $this->config))->get("to")->all();
+
+            self::assertCount(1, $parsed, $address->full);
+            self::assertSame($name, $parsed[0]->personal, $address->full);
+            self::assertSame("user@example.de", $parsed[0]->mail, $address->full);
+        }
+        self::assertSame("Max Mustermann <user@example.de>", (new \Webklex\PHPIMAP\Address((object)["personal" => "Max Mustermann", "mail" => "user@example.de"]))->full);
+    }
+
+    public function testReplyToAndSenderAreNotDefaultedToFrom(): void {
+        // unlike imap_rfc822_parse_headers(): a Reply-To / Sender that is not in the message stays empty -
+        // otherwise every message would get a "reply to" contact equal to "from"
         $header = new Header("From: Max <max@example.de>\r\nSubject: x", $this->config);
 
-        self::assertSame("max@example.de", $header->get("reply_to")->first()->mail);
-        self::assertSame("max@example.de", $header->get("sender")->first()->mail);
-        self::assertSame("Max <max@example.de>", (string)$header->get("reply_toaddress"));
-        self::assertSame("Max <max@example.de>", (string)$header->get("senderaddress"));
+        self::assertFalse($header->has("reply_to"));
+        self::assertFalse($header->has("sender"));
+        self::assertFalse($header->has("reply_toaddress"));
         self::assertFalse($header->has("spoofed"));
 
         // explicit headers are kept
@@ -176,7 +191,7 @@ class HeaderAddressTest extends TestCase {
         self::assertSame("list@example.de", $header->get("reply_to")->first()->mail);
         self::assertSame("bounce@example.de", $header->get("sender")->first()->mail);
 
-        // no defaults without a valid from address
+        // and nothing without a valid from address either
         $header = new Header("From: Name Only\r\nSubject: x", $this->config);
         self::assertFalse($header->has("reply_to"));
         self::assertFalse($header->has("sender"));
