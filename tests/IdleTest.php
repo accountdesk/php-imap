@@ -154,6 +154,10 @@ class IdleTest extends TestCase {
 
         self::assertSame(["idle test"], $result["subjects"]);
         self::assertSame(1, $result["stats"]["messages"]);
+        // Like GreenMail, the server repeats the current size on every later DONE: counted, not delivered
+        self::assertGreaterThanOrEqual(1, $result["stats"]["exists_repeated"]);
+        self::assertSame(0, $result["stats"]["exists_shrunk"]);
+        self::assertSame(0, $result["stats"]["expunges"]);
     }
 
     public function testIdleReportsMessagesThatArrivedWhileReconnecting(): void {

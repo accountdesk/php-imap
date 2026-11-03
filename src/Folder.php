@@ -440,8 +440,13 @@ class Folder {
      *                             The callback must not use the IDLE session itself - Folder::status(),
      *                             Folder::query() etc. run on the regular client connection, which is not in IDLE.
      *
-     * @return array{messages: int, keepalives: int, reconnects: int, checks: int, runtime: int}
+     * @return array{messages: int, keepalives: int, reconnects: int, checks: int, runtime: int, exists_repeated: int, exists_shrunk: int, expunges: int}
      *         checks = number of $on_keepalive calls
+     *         exists_repeated = EXISTS lines that repeated the known mailbox size and were therefore not
+     *         treated as a new message; exists_shrunk = EXISTS lines that reported fewer messages than
+     *         known without a matching EXPUNGE; expunges = EXPUNGE lines seen. Diagnostics only: if a
+     *         message is missed although EXISTS was sent, a counted repeat or shrink shows that the known
+     *         size was off (e.g. an EXPUNGE that never reached the IDLE session).
      *
      * @throws ConnectionFailedException
      * @throws RuntimeException
@@ -464,7 +469,10 @@ class Folder {
 
         $sequence = $this->client->getConfig()->get('options.sequence', IMAP::ST_MSGN);
 
-        $stats = ["messages" => 0, "keepalives" => 0, "reconnects" => 0, "checks" => 0, "runtime" => 0];
+        $stats = [
+            "messages" => 0, "keepalives" => 0, "reconnects" => 0, "checks" => 0, "runtime" => 0,
+            "exists_repeated" => 0, "exists_shrunk" => 0, "expunges" => 0,
+        ];
         $last_action = Carbon::now()->addSeconds($timeout);
 
         // Lowest UID a new message can have. Messages that arrive while the IDLE session is down (between
@@ -516,8 +524,9 @@ class Folder {
             $this->client->openFolder($this->path, true);
         };
 
-        $handle_line = function (string $line) use ($prepare_client, $deliver, &$exists): void {
+        $handle_line = function (string $line) use ($prepare_client, $deliver, &$exists, &$stats): void {
             if (preg_match('/^\* \d+ EXPUNGE/i', $line) === 1) {
+                $stats["expunges"]++;
                 if ($exists > 0) {
                     $exists--;
                 }
@@ -531,6 +540,11 @@ class Folder {
             $exists = $msgn;
             if ($msgn < 1 || ($known >= 0 && $msgn <= $known)) {
                 // no new message - the server repeated the size or reported a shrunk mailbox
+                if ($msgn >= 1 && $msgn === $known) {
+                    $stats["exists_repeated"]++;
+                } elseif ($msgn >= 1) {
+                    $stats["exists_shrunk"]++;
+                }
                 return;
             }
             $prepare_client();
