@@ -641,6 +641,11 @@ class Header {
                         }
                         // parameter names are normalized like header names ("smime-type" -> "smime_type")
                         $_name = str_replace("-", "_", $_key);
+                        // a parameter must not take the place of an address header: "Received-SPF: ...;
+                        // envelope-from=a@b.c;" would otherwise become the string attribute envelope_from
+                        if (in_array($_name, self::ADDRESS_HEADERS)) {
+                            continue;
+                        }
                         if (!isset($this->attributes[$_name])) {
                             $this->set($_name, $_value);
                         }
@@ -932,8 +937,8 @@ class Header {
         foreach($header_keys as $key) {
             $header = $this->get($key);
             foreach ($header->toArray() as $address) {
-                // the null sender ("Return-Path: <>", e.g. bounces) is no other sender
-                if ($address->mail === "") {
+                // only parsed addresses count; the null sender ("Return-Path: <>", e.g. bounces) is no other sender
+                if (!$address instanceof Address || $address->mail === "") {
                     continue;
                 }
                 $potential_senders[] = strtolower($address->mail);
