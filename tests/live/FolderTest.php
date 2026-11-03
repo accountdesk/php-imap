@@ -76,17 +76,29 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws EventNotFoundException
      */
     public function testHasChildren(): void {
-        $folder = $this->getFolder('INBOX');
-        self::assertInstanceOf(Folder::class, $folder);
+        $this->requiresCapability("children", "Folder::hasChildren() reads the \\HasChildren attribute of LIST");
+        $parent = $this->createParentWithChild();
+
+        $folder = $this->getFolder($parent->path);
+        self::assertTrue($folder->hasChildren());
 
         $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $child_path = implode($delimiter, ['INBOX', 'test']);
-        if ($folder->getClient()->getFolder($child_path) === null) {
-            $folder->getClient()->createFolder($child_path, false);
-            $folder = $this->getFolder('INBOX');
-        }
+        $child = $this->getFolder($parent->path . $delimiter . "child");
+        self::assertFalse($child->hasChildren());
+    }
 
-        self::assertTrue($folder->hasChildren());
+    /**
+     * Create a new test folder with one child folder ("child")
+     *
+     * @return Folder the parent
+     */
+    protected function createParentWithChild(): Folder {
+        $parent = $this->createTestFolder("php-imap-parent");
+        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
+        $child = $parent->getClient()->createFolder($parent->path . $delimiter . "child", false);
+        self::assertInstanceOf(Folder::class, $child);
+
+        return $parent;
     }
 
     /**
@@ -104,15 +116,10 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws RuntimeException
      */
     public function testSetChildren(): void {
-        $folder = $this->getFolder('INBOX');
-        self::assertInstanceOf(Folder::class, $folder);
+        $this->requiresCapability("children", "Folder::hasChildren() reads the \\HasChildren attribute of LIST");
+        $parent = $this->createParentWithChild();
 
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $child_path = implode($delimiter, ['INBOX', 'test']);
-        if ($folder->getClient()->getFolder($child_path) === null) {
-            $folder->getClient()->createFolder($child_path, false);
-            $folder = $this->getFolder('INBOX');
-        }
+        $folder = $this->getFolder($parent->path);
         self::assertTrue($folder->hasChildren());
 
         $folder->setChildren(new FolderCollection());
@@ -134,20 +141,19 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws RuntimeException
      */
     public function testGetChildren(): void {
-        $folder = $this->getFolder('INBOX');
+        $this->requiresCapability("children", "Client::getFolders() nests folders by the \\HasChildren attribute of LIST");
+        $parent = $this->createParentWithChild();
+
+        $inbox = $parent->getClient()->getFolders()->where('name', 'INBOX')->first();
+        self::assertInstanceOf(Folder::class, $inbox);
+        self::assertTrue($inbox->hasChildren());
+        self::assertFalse($inbox->getChildren()->isEmpty());
+
+        $folder = $inbox->getChildren()->where('path', $parent->path)->first();
         self::assertInstanceOf(Folder::class, $folder);
-
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $child_path = implode($delimiter, ['INBOX', 'test']);
-        if ($folder->getClient()->getFolder($child_path) === null) {
-            $folder->getClient()->createFolder($child_path, false);
-        }
-
-        $folder = $folder->getClient()->getFolders()->where('name', 'INBOX')->first();
-        self::assertInstanceOf(Folder::class, $folder);
-
         self::assertTrue($folder->hasChildren());
-        self::assertFalse($folder->getChildren()->isEmpty());
+        self::assertCount(1, $folder->getChildren());
+        self::assertSame("child", $folder->getChildren()->first()->name);
     }
 
     /**
@@ -168,23 +174,19 @@ class FolderTest extends LiveMailboxTestCase {
         $client = $this->getClient();
 
         $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'test']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder === null) {
-            $folder = $client->createFolder($folder_path, false);
-        }
-        $new_folder_path = implode($delimiter, ['INBOX', 'other']);
-        $new_folder = $client->getFolder($new_folder_path);
-        $new_folder?->delete(false);
+        $folder = $this->createTestFolder("php-imap-move");
+        $new_name = "php-imap-moved-" . bin2hex(random_bytes(4));
+        $new_folder_path = implode($delimiter, ['INBOX', $new_name]);
 
         $status = $folder->move($new_folder_path, false);
         self::assertIsArray($status);
         self::assertTrue(str_starts_with($status[0], 'OK'));
 
         $new_folder = $client->getFolder($new_folder_path);
+        self::assertInstanceOf(Folder::class, $new_folder);
         self::assertEquals($new_folder_path, $new_folder->path);
-        self::assertEquals('other', $new_folder->name);
+        self::assertEquals($new_name, $new_folder->name);
+        self::assertNull($client->getFolderByPath($folder->path, false, true));
 
         if ($this->deleteFolder($new_folder) === false) {
             $this->fail("Could not delete folder: " . $new_folder->path);
@@ -207,19 +209,12 @@ class FolderTest extends LiveMailboxTestCase {
      */
     public function testDelete(): void {
         $client = $this->getClient();
-
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'test']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder === null) {
-            $folder = $client->createFolder($folder_path, false);
-        }
-        self::assertInstanceOf(Folder::class, $folder);
+        $folder = $this->createTestFolder("php-imap-delete");
 
         if ($this->deleteFolder($folder) === false) {
             $this->fail("Could not delete folder: " . $folder->path);
         }
+        self::assertNull($client->getFolderByPath($folder->path, false, true));
     }
 
     /**
@@ -242,8 +237,7 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws MessageNotFoundException
      */
     public function testOverview(): void {
-        $folder = $this->getFolder('INBOX');
-        self::assertInstanceOf(Folder::class, $folder);
+        $folder = $this->createTestFolder("php-imap-overview");
 
         $folder->select();
 
@@ -312,15 +306,44 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws RuntimeException
      */
     public function testSubscribe(): void {
-        $folder = $this->getFolder('INBOX');
-        self::assertInstanceOf(Folder::class, $folder);
+        $folder = $this->createTestFolder("php-imap-subscribe");
+        $this->unsubscribeIfSubscribed($folder);
 
         $status = $folder->subscribe();
         self::assertIsArray($status);
         self::assertTrue(str_starts_with($status[0], 'OK'));
+        self::assertContains($folder->path, $this->subscribedPaths($folder));
+    }
 
-        // Clean up
-        $folder->unsubscribe();
+    /**
+     * Some servers subscribe new folders automatically and answer a second SUBSCRIBE with NO (Stalwart)
+     * @param Folder $folder
+     *
+     * @return void
+     */
+    protected function unsubscribeIfSubscribed(Folder $folder): void {
+        if (in_array($folder->path, $this->subscribedPaths($folder), true)) {
+            $folder->unsubscribe();
+        }
+    }
+
+    /**
+     * Paths of the subscribed folders below INBOX (LSUB)
+     * @param Folder $folder
+     *
+     * @return string[]
+     */
+    protected function subscribedPaths(Folder $folder): array {
+        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
+        $connection = $folder->getClient()->getConnection();
+        $response = $connection->requestAndResponse("LSUB", $connection->escapeString("", "INBOX" . $delimiter . "*"));
+        $paths = [];
+        foreach ($response->setCanBeEmpty(true)->validatedData() as $item) {
+            if (is_array($item) && count($item) === 4 && $item[0] === "LSUB") {
+                $paths[] = str_replace(["\\\\", "\\\""], ["\\", "\""], (string)$item[3]);
+            }
+        }
+        return $paths;
     }
 
     /**
@@ -337,14 +360,15 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws RuntimeException
      */
     public function testUnsubscribe(): void {
-        $folder = $this->getFolder('INBOX');
-        self::assertInstanceOf(Folder::class, $folder);
+        $folder = $this->createTestFolder("php-imap-unsubscribe");
+        if (!in_array($folder->path, $this->subscribedPaths($folder), true)) {
+            $folder->subscribe();
+        }
 
-        $folder->subscribe();
-
-        $status = $folder->subscribe();
+        $status = $folder->unsubscribe();
         self::assertIsArray($status);
         self::assertTrue(str_starts_with($status[0], 'OK'));
+        self::assertNotContains($folder->path, $this->subscribedPaths($folder));
     }
 
     /**
@@ -361,8 +385,7 @@ class FolderTest extends LiveMailboxTestCase {
      * @throws RuntimeException
      */
     public function testStatus(): void {
-        $folder = $this->getFolder('INBOX');
-        self::assertInstanceOf(Folder::class, $folder);
+        $folder = $this->createTestFolder("php-imap-status");
 
         $status = $folder->status();
         self::assertEquals(0, $status['messages']);
@@ -370,6 +393,13 @@ class FolderTest extends LiveMailboxTestCase {
         self::assertEquals(0, $status['unseen']);
         self::assertGreaterThan(0, $status['uidnext']);
         self::assertGreaterThan(0, $status['uidvalidity']);
+
+        $folder->appendMessage("From: from@someone.com\r\nTo: to@someone-else.com\r\nSubject: Status\r\n\r\nHi there!\r\n");
+        // STATUS of the selected mailbox is allowed but not reliable (rfc3501 6.3.10)
+        $folder->getClient()->openFolder("INBOX", true);
+        $status = $folder->status();
+        self::assertEquals(1, $status['messages']);
+        self::assertEquals(1, $status['unseen']);
     }
 
     /**
@@ -391,7 +421,9 @@ class FolderTest extends LiveMailboxTestCase {
 
         $status = $folder->examine();
         self::assertTrue(isset($status["flags"]) && count($status["flags"]) > 0);
-        self::assertTrue(($status["uidnext"] ?? 0) > 0);
+        if ($this->supports("uidnext_in_select")) {
+            self::assertTrue(($status["uidnext"] ?? 0) > 0);
+        }
         self::assertTrue(($status["uidvalidity"] ?? 0) > 0);
         self::assertTrue(($status["recent"] ?? -1) >= 0);
         self::assertTrue(($status["exists"] ?? -1) >= 0);

@@ -158,6 +158,11 @@ class Query {
     public function generate_query(): string {
         $query = '';
         $this->query->each(function($statement) use (&$query) {
+            // Defense in depth: CR/LF must never appear inside a search token,
+            // otherwise a crafted value could inject additional IMAP commands.
+            $statement = array_map(function($part) {
+                return is_string($part) ? str_replace(["\r", "\n"], '', $part) : $part;
+            }, $statement);
             if (count($statement) == 1) {
                 $query .= $statement[0];
             } else {
@@ -165,12 +170,13 @@ class Query {
                     $query .= $statement[0];
                 } else {
                     if (is_numeric($statement[1]) || (
-                            ($statement[0] === 'SINCE' || $statement[0] === 'BEFORE') &&
+                            in_array($statement[0], ['SINCE', 'BEFORE', 'ON'], true) &&
                             $this->client->getConfig()->get('options.unescaped_search_dates', false)
                     )) {
                         $query .= $statement[0] . ' ' . $statement[1];
                     } else {
-                        $query .= $statement[0] . ' "' . $statement[1] . '"';
+                        $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], (string)$statement[1]);
+                        $query .= $statement[0] . ' "' . $escaped . '"';
                     }
                 }
             }
@@ -246,7 +252,8 @@ class Query {
 
         $contents = [];
         if ($this->getFetchBody()) {
-            $contents = $this->client->getConnection()->content($uids, $this->client->rfc, $this->sequence)->validatedData();
+            $usePeek = ($this->getFetchOptions() === IMAP::FT_PEEK);
+            $contents = $this->client->getConnection()->content($uids, $this->client->rfc, $this->sequence, $usePeek)->validatedData();
         }
 
         return [
@@ -298,7 +305,7 @@ class Query {
      */
     protected function getMessageKey(string $message_key, int $msglist, Message $message): string {
         $key = match ($message_key) {
-            'number' => $message->getMessageNo(),
+            'number' => $message->getMsgn(),
             'list' => $msglist,
             'uid' => $message->getUid(),
             default => $message->getMessageId(),
@@ -356,10 +363,10 @@ class Query {
             $extensions = $raw_messages["extensions"][$uid] ?? [];
 
             $message = $this->make($uid, $msglist, $header, $content, $flag);
-            foreach ($extensions as $key => $extension) {
-                $message->getHeader()->set($key, $extension);
-            }
             if ($message !== null) {
+                foreach ($extensions as $key => $extension) {
+                    $message->getHeader()->set($key, $extension);
+                }
                 $key = $this->getMessageKey($message_key, $msglist, $message);
                 $messages->put("$key", $message);
             }
@@ -413,13 +420,13 @@ class Query {
 
             $this->limit = $chunk_size;
             $this->page = $start_chunk;
-            $handled_messages_count = 0;
+            // count the pages, not the messages: in soft fail mode a chunk can contain fewer messages
+            $last_page = $start_chunk + (int)ceil($available_messages_count / $chunk_size) - 1;
             do {
                 $messages = $this->populate($available_messages);
-                $handled_messages_count += $messages->count();
                 $callback($messages, $this->page);
                 $this->page++;
-            } while ($handled_messages_count < $available_messages_count);
+            } while ($this->page <= $last_page);
             $this->limit = $old_limit;
             $this->page = $old_page;
         }

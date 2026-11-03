@@ -50,11 +50,11 @@ class MixedFilenameTest extends FixtureTestCase {
         self::assertInstanceOf(Attachment::class, $attachment);
         self::assertEquals("Price4VladDaKar.xlsx", $attachment->name);
         self::assertEquals('xlsx', $attachment->getExtension());
-        self::assertEquals('text', $attachment->type);
+        self::assertEquals('application', $attachment->type);
         self::assertEquals("application/octet-stream", $attachment->content_type);
         self::assertEquals("b832983842b0ad65db69e4c7096444c540a2393e2d43f70c2c9b8b9fceeedbb1", hash('sha256', $attachment->content));
         self::assertEquals(94, $attachment->size);
-        self::assertEquals(2, $attachment->part_number);
+        self::assertEquals(1, $attachment->part_number);
         self::assertEquals("attachment", $attachment->disposition);
         self::assertNotEmpty($attachment->id);
     }

@@ -1,0 +1,111 @@
+# Matrix of real open source IMAP servers for the php-imap live tests (tests/live, tests/live/ServerMatrixTest).
+# Managed by .claude/scripts/imap-servers.sh (up/down/status/test/live); targets are described in targets.php.
+#
+# Every server provisions the same account on start (test@example.local or test, password below) and keeps
+# its data inside the container: "down" + "up" is always a clean slate. Nothing is published to the host;
+# tests run in the php-imap-test container attached to the network php-imap-servers_default.
+# Toxiproxy fronts every target with a proxy of the same name (see toxiproxy/toxiproxy.json) so tests can
+# cut connections (disable) or let them go silently dead (timeout toxic).
+name: php-imap-servers
+
+x-account: &account
+  TEST_DOMAIN: example.local
+  TEST_USER: test
+  TEST_PASSWORD: matrix-Probe-7319
+
+x-health: &health
+  interval: 5s
+  timeout: 15s
+  retries: 60
+  start_period: 10s
+
+services:
+  dovecot23:
+    image: dovecot/dovecot:2.3.21.1
+    volumes:
+      - ./dovecot23/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./dovecot23/users:/etc/dovecot/users:ro
+      - ./imap-healthcheck.sh:/usr/local/bin/imap-healthcheck:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "imap-healthcheck", "127.0.0.1", "143", "test@example.local", "matrix-Probe-7319"]
+
+  dovecot24:
+    image: dovecot/dovecot:2.4.5
+    volumes:
+      - ./dovecot24/dovecot.conf:/etc/dovecot/dovecot.conf:ro
+      - ./dovecot24/users:/etc/dovecot/users:ro
+    healthcheck:
+      <<: *health
+      # no bash in this image; curl's IMAP client logs in and runs the command
+      test: ["CMD", "curl", "-sf", "--max-time", "10", "-u", "test@example.local:matrix-Probe-7319",
+             "-X", "EXAMINE INBOX", "imap://127.0.0.1:31143/"]
+
+  greenmail:
+    image: greenmail/standalone:2.1.14
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.imap -Dgreenmail.setup.test.imaps -Dgreenmail.setup.test.smtp
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.tls.keystore.file=/home/greenmail/greenmail.p12 -Dgreenmail.tls.keystore.password=changeit
+        -Dgreenmail.users=test:matrix-Probe-7319@example.local -Dgreenmail.users.login=email
+    volumes:
+      - ./imap-healthcheck.sh:/usr/local/bin/imap-healthcheck:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "imap-healthcheck", "127.0.0.1", "3143", "test@example.local", "matrix-Probe-7319"]
+
+  cyrus:
+    image: php-imap-servers-cyrus:3.6.1
+    build: ./cyrus
+    environment: *account
+    volumes:
+      - ./imap-healthcheck.sh:/usr/local/bin/imap-healthcheck:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "imap-healthcheck", "127.0.0.1", "143", "test", "matrix-Probe-7319"]
+
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16.24
+    entrypoint: ["/stalwart-entrypoint.sh"]
+    environment: *account
+    tmpfs:
+      - /etc/stalwart:mode=1777
+      - /var/lib/stalwart:mode=1777
+    volumes:
+      - ./stalwart/entrypoint.sh:/stalwart-entrypoint.sh:ro
+      - ./imap-healthcheck.sh:/usr/local/bin/imap-healthcheck:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "imap-healthcheck", "127.0.0.1", "143", "test@example.local", "matrix-Probe-7319"]
+
+  james:
+    image: apache/james:demo-3.9.1
+    environment: *account
+    volumes:
+      - ./james/imapserver.xml:/root/conf/imapserver.xml:ro
+      - ./james/initialdata.sh:/root/initialdata.sh:ro
+      - ./imap-healthcheck.sh:/usr/local/bin/imap-healthcheck:ro
+    healthcheck:
+      <<: *health
+      start_period: 60s
+      test: ["CMD", "imap-healthcheck", "127.0.0.1", "143", "test@example.local", "matrix-Probe-7319"]
+
+  courier:
+    image: php-imap-servers-courier:5.0.13
+    build: ./courier
+    environment: *account
+    volumes:
+      - ./imap-healthcheck.sh:/usr/local/bin/imap-healthcheck:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "imap-healthcheck", "127.0.0.1", "143", "test", "matrix-Probe-7319"]
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    command: ["-host=0.0.0.0", "-config=/toxiproxy.json"]
+    volumes:
+      - ./toxiproxy/toxiproxy.json:/toxiproxy.json:ro
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/toxiproxy-cli", "list"]

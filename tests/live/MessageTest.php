@@ -125,15 +125,9 @@ class MessageTest extends LiveMailboxTestCase {
      */
     public function testThread(): void {
         $client = $this->getClient();
+        $this->requiresCapability("search_message_id_header", "Message::thread() searches HEADER Message-ID / In-Reply-To, which the server never matches");
 
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'thread']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder !== null) {
-            self::assertTrue($this->deleteFolder($folder));
-        }
-        $folder = $client->createFolder($folder_path, false);
+        $folder = $this->createTestFolder("php-imap-thread");
 
         $message1 = $this->appendMessageTemplate($folder, "thread_my_topic.eml");
         $message2 = $this->appendMessageTemplate($folder, "thread_re_my_topic.eml");
@@ -420,14 +414,7 @@ class MessageTest extends LiveMailboxTestCase {
     public function testGetMsgn(): void {
         $client = $this->getClient();
 
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'test']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder !== null) {
-            self::assertTrue($this->deleteFolder($folder));
-        }
-        $folder = $client->createFolder($folder_path, false);
+        $folder = $this->createTestFolder("php-imap-test");
 
         $message = $this->appendMessageTemplate($folder, "plain.eml");
         self::assertInstanceOf(Message::class, $message);
@@ -1406,14 +1393,7 @@ class MessageTest extends LiveMailboxTestCase {
         $client = $message->getClient();
         self::assertInstanceOf(Client::class, $client);
 
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'test']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder !== null) {
-            self::assertTrue($this->deleteFolder($folder));
-        }
-        $folder = $client->createFolder($folder_path, false);
+        $folder = $this->createTestFolder("php-imap-test");
         self::assertInstanceOf(Folder::class, $folder);
 
         $new_message = $message->copy($folder->path, true);
@@ -2014,7 +1994,7 @@ class MessageTest extends LiveMailboxTestCase {
      */
     public function testGetSize(): void {
         $message = $this->getDefaultMessage();
-        self::assertEquals(214, $message->getSize());
+        $this->assertSizeOfStoredMessage($message, $this->loadMessageTemplate("plain.eml"));
 
         // Cleanup
         self::assertTrue($message->delete());
@@ -2161,14 +2141,7 @@ class MessageTest extends LiveMailboxTestCase {
         $client = $message->getClient();
         self::assertInstanceOf(Client::class, $client);
 
-        $delimiter = $this->getManager()->getConfig()->get("options.delimiter");
-        $folder_path = implode($delimiter, ['INBOX', 'test']);
-
-        $folder = $client->getFolder($folder_path);
-        if ($folder !== null) {
-            self::assertTrue($this->deleteFolder($folder));
-        }
-        $folder = $client->createFolder($folder_path, false);
+        $folder = $this->createTestFolder("php-imap-test");
         self::assertInstanceOf(Folder::class, $folder);
 
         $message = $message->move($folder->path, true);

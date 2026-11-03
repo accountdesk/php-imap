@@ -102,20 +102,18 @@ class Structure {
      * @return Part[]
      * @throws InvalidMessageDateException
      */
-    private function parsePart(string $context, int $part_number = 0): array {
-        $body = $context;
-        while (($pos = strpos($body, "\r\n")) > 0) {
-            $body = substr($body, $pos + 2);
-        }
-        $headers = substr($context, 0, strlen($body) * -1);
-        $body = substr($body, 0, -2);
+    private function parsePart(string $context, int $part_number = 0, int $depth = 0): array {
+        [$headers, $body] = Part::splitHeaderAndBody($context);
 
         $config = $this->header->getConfig();
         $headers = new Header($headers, $config);
         if (($boundary = $headers->getBoundary()) !== null) {
-            $parts = $this->detectParts($boundary, $body, $part_number);
+            $parts = $this->detectParts($boundary, $body, $part_number, $depth + 1);
 
-            if(count($parts) > 1) {
+            // we return these parts if there are multiple or if configured to allow a single part here (default)
+            // isolated cases a single part here causes an empty body, to workaround this set
+            // allow_single_parts to false in your config
+            if (count($parts) > 1 || $config->get("options.allow_single_parts", true)) {
                 return $parts;
             }
         }
@@ -131,16 +129,17 @@ class Structure {
      * @return array
      * @throws InvalidMessageDateException
      */
-    private function detectParts(string $boundary, string $context, int $part_number = 0): array {
-        $base_parts = explode( "--".$boundary, $context);
-        if(count($base_parts) == 0) {
-            $base_parts = explode($boundary, $context);
+    private function detectParts(string $boundary, string $context, int $part_number = 0, int $depth = 0): array {
+        // Bound the nesting depth of multipart structures to prevent a crafted,
+        // deeply nested message from exhausting the stack/memory.
+        $max_depth = (int)($this->options["max_mime_depth"] ?? 50);
+        if ($depth > $max_depth) {
+            return [new Part($context, $this->header->getConfig(), $this->header, $part_number)];
         }
         $final_parts = [];
-        foreach($base_parts as $ctx) {
-            $ctx = substr($ctx, 2);
-            if ($ctx !== "--" && $ctx != "" && $ctx != "\r\n") {
-                $parts = $this->parsePart($ctx, $part_number);
+        foreach(self::splitMultipart($boundary, $context) as $ctx) {
+            if (trim($ctx) !== "") {
+                $parts = $this->parsePart($ctx, $part_number, $depth);
                 foreach ($parts as $part) {
                     $final_parts[] = $part;
                     $part_number = $part->part_number;
@@ -149,6 +148,62 @@ class Structure {
             }
         }
         return $final_parts;
+    }
+
+    /**
+     * Split a multipart body into its body parts (RFC 2046 5.1.1)
+     *
+     * A delimiter is "--boundary" at the beginning of a line, optionally followed by whitespace; the line break
+     * in front of it belongs to the delimiter. CRLF and bare LF line endings are accepted (some servers return
+     * messages as they were stored, e.g. with LF only), the content of the parts is not changed. The preamble
+     * and the epilogue after the close delimiter ("--boundary--") are no parts. If the body does not contain
+     * the delimiter at all, the whole body is returned as a single part.
+     * @param string $boundary
+     * @param string $context
+     *
+     * @return string[]
+     */
+    public static function splitMultipart(string $boundary, string $context): array {
+        $pattern = '/(?:\A|\r?\n)--' . preg_quote($boundary, '/') . '(--)?[ \t]*(?=\r?\n|\z)(?:\r?\n)?/';
+        if (!preg_match_all($pattern, $context, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            return [$context];
+        }
+
+        $parts = [];
+        $count = count($matches);
+        for ($i = 0; $i < $count; $i++) {
+            if (isset($matches[$i][1]) && $matches[$i][1][0] === "--") {
+                // close delimiter - everything behind it is the epilogue
+                break;
+            }
+            $start = $matches[$i][0][1] + strlen($matches[$i][0][0]);
+            $end = isset($matches[$i + 1]) ? $matches[$i + 1][0][1] : strlen($context);
+            $part = substr($context, $start, $end - $start);
+            if (!isset($matches[$i + 1])) {
+                // the close delimiter is missing (truncated message): the trailing line break is no content
+                $part = preg_replace('/\r?\n\z/', '', $part);
+            }
+            $parts[] = $part;
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Header for the body of a multipart message without boundary: text/plain with the charset and the
+     * transfer encoding of the message
+     *
+     * @return Header
+     * @throws InvalidMessageDateException
+     */
+    private function plainTextHeader(): Header {
+        $charset = $this->header->get("charset")->first();
+        $encoding = $this->header->get("content_transfer_encoding")->first();
+        $raw = "Content-Type: text/plain" . (is_string($charset) && $charset !== "" ? "; charset=\"" . addcslashes($charset, '"\\') . "\"" : "") . "\r\n";
+        if (is_string($encoding) && $encoding !== "") {
+            $raw .= "Content-Transfer-Encoding: " . trim($encoding) . "\r\n";
+        }
+        return new Header($raw, $this->header->getConfig());
     }
 
     /**
@@ -161,10 +216,12 @@ class Structure {
     public function find_parts(): array {
         if($this->type === IMAP::MESSAGE_TYPE_MULTIPART) {
             if (($boundary = $this->header->getBoundary()) === null)  {
-                throw new MessageContentFetchingException("no content found", 0);
+                // A multipart without (usable) boundary cannot be split. Like an unrecognized subtype
+                // (RFC 2046 5.1.7) its body is taken as plain text instead of rejecting the whole message.
+                return [new Part($this->raw, $this->header->getConfig(), $this->plainTextHeader(), 0)];
             }
 
-            return $this->detectParts($boundary, $this->raw);
+            return $this->detectParts($boundary, $this->raw, 0, 0);
         }
 
         return [new Part($this->raw, $this->header->getConfig(), $this->header)];

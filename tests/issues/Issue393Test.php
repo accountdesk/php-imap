@@ -40,6 +40,7 @@ class Issue393Test extends LiveMailboxTestCase {
      * @throws MaskNotFoundException
      */
     public function testIssue(): void {
+        $this->requiresCapability("list_inner_wildcard", "getFolders(true, 'doesnt_exist<delimiter>%') lists the pattern 'doesnt_exist<delimiter>%%'");
         $client = $this->getClient();
         $client->connect();
 

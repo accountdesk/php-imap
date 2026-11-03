@@ -67,14 +67,14 @@ class Mask {
         if(strtolower(substr($method, 0, 3)) === 'get') {
             $name = Str::snake(substr($method, 3));
 
-            if(isset($this->attributes[$name])) {
+            if(array_key_exists($name, $this->attributes)) {
                 return $this->attributes[$name];
             }
 
         }elseif (strtolower(substr($method, 0, 3)) === 'set') {
             $name = Str::snake(substr($method, 3));
 
-            if(isset($this->attributes[$name])) {
+            if(array_key_exists($name, $this->attributes)) {
                 $this->attributes[$name] = array_pop($arguments);
 
                 return $this->attributes[$name];

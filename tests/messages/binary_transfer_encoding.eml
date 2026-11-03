@@ -1,0 +1,10 @@
+From: sender@example.com
+To: recipient@example.com
+Subject: Binary transfer encoding
+Date: Sun, 07 Jan 2024 07:00:00 +0000
+Message-ID: <binary@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: binary
+
+Hello binary world

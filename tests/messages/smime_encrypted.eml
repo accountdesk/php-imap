@@ -1,0 +1,22 @@
+From: sender@example.com
+To: anna@example.com
+Subject: Encrypted
+Date: Fri, 8 Mar 2024 11:00:00 +0100
+Message-ID: <smime-encrypted@example.com>
+MIME-Version: 1.0
+Content-Type: application/pkcs7-mime; smime-type=enveloped-data; name="smime.p7m"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="smime.p7m"
+Content-Description: S/MIME Encrypted Message
+
+BRIfLDlGU2BteoeUoa67yNXi7/wJFiMwPUpXZHF+i5ilsr/M2ebzAA0aJzRBTlto
+dYKPnKm2w9Dd6vcEER4rOEVSX2x5hpOgrbrH1OHu+wgVIi88SVZjcH2Kl6SxvsvY
+5fL/DBkmM0BNWmd0gY6bqLXCz9zp9gMQHSo3RFFea3iFkp+sucbT4O36BxQhLjtI
+VWJvfImWo7C9ytfk8f4LGCUyP0xZZnOAjZqntMHO2+j1Ag8cKTZDUF1qd4SRnqu4
+xdLf7PkGEyAtOkdUYW57iJWir7zJ1uPw/QoXJDE+S1hlcn+MmaazwM3a5/QBDhso
+NUJPXGl2g5CdqrfE0d7r+AUSHyw5RlNgbXqHlKGuu8jV4u/8CRYjMD1KV2RxfouY
+pbK/zNnm8wANGic0QU5baHWCj5yptsPQ3er3BBEeKzhFUl9seYaToK26x9Th7vsI
+FSIvPElWY3B9ipeksb7L2OXy/wwZJjNATVpndIGOm6i1ws/c6fYDEB0qN0RRXmt4
+hZKfrLnG0+Dt+gcUIS47SFVib3yJlqOwvcrX5PH+CxglMj9MWWZzgI2ap7TBztvo
+9QIPHCk2Q1BdaneEkZ6ruMXS3+z5BhMgLTpHVGFue4iVoq+8ydbj8P0KFyQxPktY
+ZXJ/jJmms8DN2uf0AQ4bKDVCT1w=

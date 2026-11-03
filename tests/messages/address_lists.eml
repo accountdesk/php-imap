@@ -1,0 +1,13 @@
+From: "Doe, John" <john.doe@example.com>
+Sender: mailer@lists.example.com
+Reply-To: <list@lists.example.com>
+To: "Doe, John" <john.doe@example.com>, jane@example.com,
+ <bare@example.com>, Max Mustermann <max@example.de>
+Cc: 'Single Quoted' <single@example.org>, nohost
+Bcc: hidden@example.net
+Subject: Address lists
+Date: Fri, 05 Jan 2024 09:15:00 -0500
+Message-ID: <address-lists@example.com>
+Content-Type: text/plain; charset=utf-8
+
+Hello.

@@ -59,9 +59,15 @@ use Webklex\PHPIMAP\Support\Masks\AttachmentMask;
 class Attachment {
 
     /**
-     * @var Message $message
+     * Weak back-reference to the message this attachment belongs to.
+     * A hard reference would create a reference cycle (Message -> AttachmentCollection ->
+     * Attachment -> Message). PHP only collects such cycles once the gc root buffer
+     * fills up (~10k roots) - with large attachment payloads this exhausts the memory
+     * limit long before the collector ever runs (see issue #531).
+     *
+     * @var \WeakReference<Message> $message
      */
-    protected Message $message;
+    protected \WeakReference $message;
 
     /**
      * Used config
@@ -121,16 +127,16 @@ class Attachment {
      * @throws DecoderNotFoundException
      */
     public function __construct(Message $message, Part $part) {
-        $this->message = $message;
-        $this->config = $this->message->getConfig();
+        $this->message = \WeakReference::create($message);
+        $this->config = $message->getConfig();
         $this->options = $this->config->get('options');
         $this->decoder = $this->config->getDecoder("attachment");
 
         $this->part = $part;
         $this->part_number = $part->part_number;
 
-        if ($this->message->getClient()) {
-            $default_mask = $this->message->getClient()?->getDefaultAttachmentMask();
+        if ($message->getClient()) {
+            $default_mask = $message->getClient()?->getDefaultAttachmentMask();
             if ($default_mask != null) {
                 $this->mask = $default_mask;
             }
@@ -263,14 +269,9 @@ class Attachment {
             $this->name = $this->decodeName($name);
         }
 
-        if (IMAP::ATTACHMENT_TYPE_MESSAGE == $this->part->type) {
-            if ($this->part->ifdescription) {
-                if (!$this->name) {
-                    $this->name = $this->part->description;
-                }
-            } else if (!$this->name) {
-                $this->name = $this->part->subtype;
-            }
+        // an attached message without name or filename is named by its description or subtype ("rfc822")
+        if (IMAP::ATTACHMENT_TYPE_MESSAGE == $this->part->type && !$this->name && !$this->filename) {
+            $this->name = $this->description ?: $this->part->subtype;
         }
         $this->attributes = array_merge($this->part->getHeader()->getAttributes(), $this->attributes);
 
@@ -292,6 +293,10 @@ class Attachment {
      */
     public function save(string $path, ?string $filename = null): bool {
         $filename = $filename ? $this->decodeName($filename) : $this->filename;
+
+        // Always strip any directory component from the final filename, even if
+        // filename sanitisation is disabled, to prevent path traversal on save.
+        $filename = basename(str_replace('\\', '/', (string)$filename));
 
         return file_put_contents($path . DIRECTORY_SEPARATOR . $filename, $this->getContent()) !== false;
     }
@@ -319,13 +324,16 @@ class Attachment {
                 $name = \imap_utf8($name);
             }
 
-            // check if $name is url encoded
+            // check if $name is percent encoded (RFC 2231) - "+" is no space there
             if (preg_match('/%[0-9A-F]{2}/i', $name)) {
-                $name = urldecode($name);
+                $name = rawurldecode($name);
             }
 
             if (isset($encoding)) {
                 $name = EncodingAliases::convert($name, $encoding);
+            } elseif (!mb_check_encoding($name, "UTF-8")) {
+                // undeclared 8bit name - read as Windows-1252 like undeclared 8bit header text
+                $name = EncodingAliases::convertString($name, "windows-1252");
             }
 
             if($this->config->get('security.sanitize_filenames', true)) {
@@ -387,10 +395,14 @@ class Attachment {
     }
 
     /**
-     * @return Message
+     * Get the message this attachment belongs to. Returns null if the message
+     * instance has already been garbage collected (the attachment only holds a
+     * weak reference to avoid a memory-exhausting reference cycle, issue #531).
+     *
+     * @return ?Message
      */
-    public function getMessage(): Message {
-        return $this->message;
+    public function getMessage(): ?Message {
+        return $this->message->get();
     }
 
     /**

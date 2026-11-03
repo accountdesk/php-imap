@@ -24,8 +24,9 @@ class Issue420Test extends TestCase {
         $header = new Header($raw_header, Config::make());
         $subject = $header->get("subject");
 
+        // utf8_decode() (deprecated since 8.2) maps invalid UTF-8 like the expectation - mb_convert_encoding() does not
         // Ticket No: [��17] Mailbox Inbox - (17) Incoming failed messages
-        $this->assertEquals('Ticket No: [??17] Mailbox Inbox - (17) Incoming failed messages', utf8_decode($subject->toString()));
+        $this->assertEquals('Ticket No: [??17] Mailbox Inbox - (17) Incoming failed messages', @utf8_decode($subject->toString()));
     }
 
 }

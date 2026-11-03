@@ -52,7 +52,8 @@ class Issue379Test extends LiveMailboxTestCase {
         $folder = $this->getFolder('INBOX');
 
         $message = $this->appendMessageTemplate($folder, "plain.eml");
-        $this->assertEquals(214, $message->getSize());
+        // plain.eml has 212 bytes with CRLF; the exact size depends on the server (Courier adds a final CRLF)
+        $this->assertSizeOfStoredMessage($message, $this->loadMessageTemplate("plain.eml"));
 
         // Clean up
         $this->assertTrue($message->delete(true));

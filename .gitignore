@@ -5,3 +5,6 @@ composer.lock
 test.php
 .phpunit.result.cache
 phpunit.xml
+.claude/settings.local.json
+tests/servers/targets.local.php
+.claude/worktrees/

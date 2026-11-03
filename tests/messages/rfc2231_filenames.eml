@@ -1,0 +1,40 @@
+From: sender@example.com
+To: recipient@example.com
+Subject: RFC 2231 filenames
+Date: Thu, 04 Jan 2024 12:00:00 +0000
+Message-ID: <rfc2231@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=us-ascii
+
+See attachments.
+--b1
+Content-Type: application/pdf; name*=UTF-8''%E2%82%AC%20Rechnung%20M%C3%A4rz.pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename*=UTF-8''%E2%82%AC%20Rechnung%20M%C3%A4rz.pdf
+
+JVBERi0xLjQgaW52b2ljZQ==
+--b1
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment;
+ filename*0*=UTF-8''Sehr%20langer%20Datei;
+ filename*1*=name%20%C3%BC.txt
+
+SW5oYWx0IG1pdCBVbWxhdXQgw7w=
+--b1
+Content-Type: application/octet-stream; name="../../etc/passwd"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="../../etc/passwd"
+
+cm9vdDp4OjA6MA==
+--b1
+Content-Type: text/csv; charset=ISO-8859-1; name="Liste.csv"
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: attachment; filename="Liste.csv"
+
+Name;Ort
+M=FCller;K=F6ln
+--b1--

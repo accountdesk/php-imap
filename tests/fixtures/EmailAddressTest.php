@@ -54,6 +54,6 @@ class EmailAddressTest extends FixtureTestCase {
         self::assertFalse($message->date->first());
         self::assertEquals("no_host", (string)$message->from);
         self::assertEquals("", $message->to);
-        self::assertEquals("This one: is \"right\" <ding@dong.com>, No-address", (string)$message->cc);
+        self::assertEquals("\"This one: is \\\"right\\\"\" <ding@dong.com>, No-address", (string)$message->cc);
     }
 }

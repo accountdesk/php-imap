@@ -1,0 +1,21 @@
+Received: from mx1.example.com by mx2.example.com;
+	Fri, 05 Jan 2024 09:15:00 -0500
+Received: from client.example.com by mx1.example.com;
+ Fri, 05 Jan 2024 09:14:59 -0500
+From: folded@example.com
+To: recipient@example.com
+Subject: This is a very long subject line that has been folded
+ over two lines
+X-Custom: first
+X-Custom: second
+X-Empty:
+References: <ref1@example.com>
+ <ref2@example.com> <ref3@example.com>
+In-Reply-To: <ref3@example.com>
+X-Priority: 2 (High)
+Date: Sat, 06 Jan 2024 18:45:30 +0100
+Message-ID: <folded@example.com>
+Content-Type: text/plain; charset=utf-8; format=flowed
+Content-Transfer-Encoding: 8bit
+
+Body with 8bit content: äöü €

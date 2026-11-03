@@ -101,7 +101,7 @@ class PartTest extends TestCase {
         self::assertSame("6mfFxiU5Yhv9WYJx.txt", $part->name);
         self::assertSame("6mfFxiU5Yhv9WYJx.txt", $part->filename);
         self::assertSame(true, $part->isAttachment());
-        self::assertSame(IMAP::MESSAGE_TYPE_TEXT, $part->type);
+        self::assertSame(IMAP::ATTACHMENT_TYPE_APPLICATION, $part->type);
         self::assertSame(IMAP::MESSAGE_ENC_BASE64, $part->encoding);
     }
 }

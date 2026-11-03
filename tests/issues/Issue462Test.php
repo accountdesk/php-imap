@@ -43,6 +43,6 @@ class Issue462Test extends FixtureTestCase {
         $config->set('options.rfc822', false);
         $message = $this->getFixture("issue-462.eml", $config);
         self::assertSame("Undeliverable: Some subject", (string)$message->subject);
-        self::assertSame("postmaster@ <sending_domain.tld postmaster@sending_domain.tld>", (string)$message->from->first());
+        self::assertSame("\"postmaster@\" <sending_domain.tld postmaster@sending_domain.tld>", (string)$message->from->first());
     }
 }

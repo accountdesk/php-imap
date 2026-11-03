@@ -45,20 +45,14 @@ class Config {
      */
     public function get(string $key, $default = null): mixed {
         $parts = explode('.', $key);
-        $value = null;
+        $value = $this->config;
         foreach ($parts as $part) {
-            if ($value === null) {
-                if (isset($this->config[$part])) {
-                    $value = $this->config[$part];
-                } else {
-                    break;
-                }
+            if (is_array($value) && isset($value[$part])) {
+                $value = $value[$part];
             } else {
-                if (isset($value[$part])) {
-                    $value = $value[$part];
-                } else {
-                    break;
-                }
+                // A path segment could not be resolved - fall back to the default
+                // instead of returning the last resolved intermediate value.
+                return $default;
             }
         }
 
@@ -77,13 +71,18 @@ class Config {
         $config = &$this->config;
 
         foreach ($parts as $part) {
+            if (!is_array($config)) {
+                // a scalar on the way is replaced by the new branch
+                $config = [];
+            }
             if (!isset($config[$part])) {
                 $config[$part] = [];
             }
             $config = &$config[$part];
         }
 
-        if(is_array($config) && is_array($value)){
+        // named keys are merged into an existing array, a list replaces it (array_merge() would append it)
+        if(is_array($config) && is_array($value) && !self::isList($value)){
             $config = array_merge($config, $value);
         }else{
             $config = $value;
@@ -249,11 +248,12 @@ class Config {
                     continue;
                 }
 
-                if ((is_array($value) && $isAssoc($value)) || (is_array($base[$key]) && $isAssoc($base[$key]))) {
+                $base_value = $base[$key] ?? null;
+                if ((is_array($value) && $isAssoc($value)) || (is_array($base_value) && $isAssoc($base_value))) {
                     // If the arrays are not associates we don't want to array_merge_recursive_distinct
                     // else merging $baseConfig['dispositions'] = ['attachment', 'inline'] with $customConfig['dispositions'] = ['attachment']
                     // results in $resultConfig['dispositions'] = ['attachment', 'inline']
-                    $base[$key] = self::array_merge_recursive_distinct($base[$key], $value);
+                    $base[$key] = self::array_merge_recursive_distinct($base_value, $value);
                 } else if (is_numeric($key)) {
                     if (!in_array($value, $base)) $base[] = $value;
                 } else {
@@ -265,6 +265,16 @@ class Config {
         }
 
         return $base;
+    }
+
+    /**
+     * Is the array a list (keys 0, 1, 2, ...)? array_is_list() needs PHP 8.1
+     * @param array $array
+     *
+     * @return bool
+     */
+    private static function isList(array $array): bool {
+        return $array === [] || array_keys($array) === range(0, count($array) - 1);
     }
 
     /**

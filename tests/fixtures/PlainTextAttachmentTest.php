@@ -47,7 +47,7 @@ class PlainTextAttachmentTest extends FixtureTestCase {
         self::assertNull($attachment->content_type);
         self::assertEquals("Hi!", $attachment->content);
         self::assertEquals(4, $attachment->size);
-        self::assertEquals(2, $attachment->part_number);
+        self::assertEquals(1, $attachment->part_number);
         self::assertEquals("attachment", $attachment->disposition);
         self::assertNotEmpty($attachment->id);
     }

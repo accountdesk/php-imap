@@ -1,0 +1,29 @@
+From: Grüße Versand <versand@example.de>
+To: kunde@example.com
+Subject: Ihre Bestellung über 5 €
+Date: Wed, 6 Mar 2024 12:00:00 +0100
+Message-ID: <broken-charsets@example.de>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="xyz"
+
+--xyz
+Content-Type: text/plain; charset="unknown-8bit"
+Content-Transfer-Encoding: 8bit
+
+Grüße
+--xyz
+Content-Type: text/plain; charset=windows-1252
+Content-Transfer-Encoding: quoted-printable
+
+Preis: 5 =80 =93netto=94
+--xyz
+Content-Type: text/html; charset="utf8"
+Content-Transfer-Encoding: 8bit
+
+<p>Ã„rger</p>
+--xyz
+Content-Type: text/plain; charset="x-unknown-charset"
+Content-Transfer-Encoding: 7bit
+
+plain ascii
+--xyz--

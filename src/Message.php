@@ -130,10 +130,8 @@ class Message {
 
     /**
      * The message folder path
-     *
-     * @var string $folder_path
      */
-    protected string $folder_path;
+    protected string $folder_path = '';
 
     /**
      * Fetch body options
@@ -297,17 +295,18 @@ class Message {
                                  "message" => $client->getDefaultEvents("message"),
                                  "flag"    => $client->getDefaultEvents("flag"),
                              ]);
+        // The folder path first: setClient() selects the message folder right away
         $instance->setFolderPath($client->getFolderPath());
+        $instance->setClient($client);
         $instance->setSequence($sequence);
         $instance->setFetchOption($fetch_options);
 
-        $instance->setClient($client);
         $instance->setSequenceId($uid, $msglist);
 
         $instance->parseRawHeader($raw_header);
         $instance->parseRawFlags($raw_flags);
         $instance->parseRawBody($raw_body);
-        $instance->peek();
+        $instance->peekAfterFetch();
 
         return $instance;
     }
@@ -330,7 +329,7 @@ class Message {
      * @throws RuntimeException
      */
     public static function fromFile(string $filename, ?Config $config = null): Message {
-        $blob = file_get_contents($filename);
+        $blob = @file_get_contents($filename);
         if ($blob === false) {
             throw new RuntimeException("Unable to read file");
         }
@@ -370,8 +369,15 @@ class Message {
         if(!str_contains($blob, "\r\n")){
             $blob = str_replace("\n", "\r\n", $blob);
         }
-        $raw_header = substr($blob, 0, strpos($blob, "\r\n\r\n"));
-        $raw_body = substr($blob, strlen($raw_header)+4);
+        // the header ends at the first blank line - also with bare LF line endings in a message which contains
+        // a CRLF somewhere else (e.g. inside a binary attachment) and therefore was not converted above
+        if (preg_match('/\r?\n\r?\n/', $blob, $match, PREG_OFFSET_CAPTURE)) {
+            $raw_header = substr($blob, 0, $match[0][1]);
+            $raw_body = substr($blob, $match[0][1] + strlen($match[0][0]));
+        } else {
+            $raw_header = $blob;
+            $raw_body = '';
+        }
 
         $instance->parseRawHeader($raw_header);
         $instance->parseRawBody($raw_body);
@@ -638,8 +644,9 @@ class Message {
         $this->client->openFolder($this->folder_path);
 
         $sequence_id = $this->getSequenceId();
+        $usePeek = ($this->fetch_options === IMAP::FT_PEEK);
         try {
-            $contents = $this->client->getConnection()->content([$sequence_id], $this->client->rfc, $this->sequence)->validatedData();
+            $contents = $this->client->getConnection()->content([$sequence_id], $this->client->rfc, $this->sequence, $usePeek)->validatedData();
         } catch (Exceptions\RuntimeException $e) {
             throw new MessageContentFetchingException("failed to fetch content", 0, $e);
         }
@@ -649,7 +656,7 @@ class Message {
         $content = $contents[$sequence_id];
 
         $body = $this->parseRawBody($content);
-        $this->peek();
+        $this->peekAfterFetch();
 
         return $body;
     }
@@ -675,8 +682,31 @@ class Message {
     }
 
     /**
-     * Handle auto "Seen" flag handling
+     * Handle auto "Seen" flag handling after the body was fetched
      *
+     * @throws AuthFailedException
+     * @throws ConnectionFailedException
+     * @throws EventNotFoundException
+     * @throws ImapBadRequestException
+     * @throws ImapServerErrorException
+     * @throws MessageFlagException
+     * @throws RuntimeException
+     * @throws ResponseException
+     */
+    protected function peekAfterFetch(): void {
+        // With FT_PEEK the body is fetched with BODY.PEEK[TEXT] for rfc RFC822 / BODY (see ImapProtocol::content()),
+        // which does not set \Seen (RFC 3501 6.4.5) - removing the flag again would only cost a STORE per unseen
+        // message and dispatch a "flag deleted" event for a flag that was never set.
+        if ($this->fetch_options == IMAP::FT_PEEK && in_array($this->client->rfc ?? "RFC822", ["RFC822", "BODY"], true)) {
+            return;
+        }
+        $this->peek();
+    }
+
+    /**
+     * Mark the message as seen (fetch option FT_UID) or remove the seen flag again (FT_PEEK)
+     *
+     * @return void
      * @throws AuthFailedException
      * @throws ConnectionFailedException
      * @throws EventNotFoundException
@@ -1001,8 +1031,10 @@ class Message {
      * @throws ResponseException
      */
     public function copy(string $folder_path, bool $expunge = false, bool $utf7 = false): ?Message {
+        // the server knows the folder by its modified UTF-7 path (RFC 3501 5.1.3)
+        if (!$utf7) $folder_path = EncodingAliases::convert($folder_path, "utf-8", "UTF7-IMAP");
         $this->client->openFolder($folder_path);
-        $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
+        $status = $this->fetchUidNextStatus($folder_path);
 
         if (isset($status["uidnext"])) {
             $next_uid = $status["uidnext"];
@@ -1011,7 +1043,7 @@ class Message {
             }
 
             /** @var Folder $folder */
-            $folder = $this->client->getFolderByPath($folder_path, $utf7);
+            $folder = $this->client->getFolderByPath($folder_path, true);
 
             $this->client->openFolder($this->folder_path);
             if ($this->client->getConnection()->copyMessage($folder->path, $this->getSequenceId(), null, $this->sequence)->validatedData()) {
@@ -1044,8 +1076,10 @@ class Message {
      * @throws ResponseException
      */
     public function move(string $folder_path, bool $expunge = false, bool $utf7 = false): ?Message {
+        // the server knows the folder by its modified UTF-7 path (RFC 3501 5.1.3)
+        if (!$utf7) $folder_path = EncodingAliases::convert($folder_path, "utf-8", "UTF7-IMAP");
         $this->client->openFolder($folder_path);
-        $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
+        $status = $this->fetchUidNextStatus($folder_path);
 
         if (isset($status["uidnext"])) {
             $next_uid = $status["uidnext"];
@@ -1054,7 +1088,7 @@ class Message {
             }
 
             /** @var Folder $folder */
-            $folder = $this->client->getFolderByPath($folder_path, $utf7);
+            $folder = $this->client->getFolderByPath($folder_path, true);
 
             $this->client->openFolder($this->folder_path);
             if ($this->client->getConnection()->moveMessage($folder->path, $this->getSequenceId(), null, $this->sequence)->validatedData()) {
@@ -1063,6 +1097,27 @@ class Message {
         }
 
         return null;
+    }
+
+    /**
+     * EXAMINE the target folder of a copy / move. Servers that leave UIDNEXT out of the EXAMINE response
+     * (Courier) are asked via STATUS - without it the copied message cannot be found.
+     * @param string $folder_path UTF-7 path
+     *
+     * @return array
+     * @throws AuthFailedException
+     * @throws ConnectionFailedException
+     * @throws ImapBadRequestException
+     * @throws ImapServerErrorException
+     * @throws RuntimeException
+     * @throws ResponseException
+     */
+    protected function fetchUidNextStatus(string $folder_path): array {
+        $status = $this->client->getConnection()->examineFolder($folder_path)->validatedData();
+        if (!isset($status["uidnext"])) {
+            $status["uidnext"] = $this->client->getConnection()->folderStatus($folder_path, ["UIDNEXT"])->validatedData()["uidnext"] ?? null;
+        }
+        return $status;
     }
 
     /**
@@ -1127,7 +1182,7 @@ class Message {
     public function delete(bool $expunge = true, ?string $trash_path = null, bool $force_move = false): bool {
         $status = $this->setFlag("Deleted");
         if ($force_move) {
-            $trash_path = $trash_path === null ? $this->config["common_folders"]["trash"] : $trash_path;
+            $trash_path = $trash_path === null ? $this->config->get("options.common_folders.trash", "INBOX/Trash") : $trash_path;
             $this->move($trash_path);
         }
         if ($expunge) $this->client->expunge();
@@ -1465,11 +1520,21 @@ class Message {
 
     /**
      * Set the message path aka folder path
-     * @param $folder_path
+     * @param ?string $folder_path
      *
      * @return Message
      */
-    public function setFolderPath($folder_path): Message {
+    public function setFolderPath(?string $folder_path): Message {
+        if ($folder_path === null || $folder_path === '') {
+            $folder_path = $this->client?->getFolderPath();
+        }
+        if ($folder_path === null || $folder_path === '') {
+            $folder_path = (string)$this->config->get('options.common_folders.inbox', 'INBOX');
+        }
+        if ($folder_path === '') {
+            $folder_path = 'INBOX';
+        }
+    
         $this->folder_path = $folder_path;
 
         return $this;

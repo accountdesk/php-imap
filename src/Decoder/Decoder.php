@@ -89,11 +89,83 @@ abstract class Decoder implements DecoderInterface {
             $result = \imap_mime_header_decode($text);
             return is_array($result) ? $result : [];
         }
-        $charset = $this->getEncoding($text);
-        return [(object)[
-            "charset" => $charset,
-            "text"    => $this->convertEncoding($text, $charset)
-        ]];
+        return self::decodeMimeHeader($text);
+    }
+
+    /**
+     * Pure PHP implementation of imap_mime_header_decode() (ext-imap is unbundled since PHP 8.4)
+     *
+     * Splits the text into encoded-words (RFC 2047) and plain text. Every encoded-word becomes an object with
+     * its charset and the decoded, not yet converted bytes; plain text gets the charset "default". Whitespace
+     * between two adjacent encoded-words is dropped. The conversion into UTF-8 is left to the caller (via
+     * EncodingAliases), so charsets iconv does not know by name (e.g. ks_c_5601-1987) work as well.
+     * Unlike c-client, an encoded-word with an unknown encoding or invalid base64 is kept as plain text and
+     * an RFC 2231 language suffix ("utf-8*de") is removed from the charset.
+     * @param string $text
+     *
+     * @return array<int,object>
+     */
+    public static function decodeMimeHeader(string $text): array {
+        $result = [];
+        $plain = "";
+        $last_was_word = false;
+        $offset = 0;
+        $length = strlen($text);
+
+        while ($offset < $length) {
+            if (!preg_match('/=\?([^?\s]+)\?([bq])\?([^?]*)\?=/i', $text, $match, PREG_OFFSET_CAPTURE, $offset)) {
+                break;
+            }
+            $start = $match[0][1];
+            $decoded = self::decodeEncodedWord($match[2][0], $match[3][0]);
+            if ($decoded === null) {
+                // not decodable - keep it as plain text and continue behind its "=?"
+                $plain .= substr($text, $offset, $start - $offset + 2);
+                $offset = $start + 2;
+                $last_was_word = false;
+                continue;
+            }
+
+            $between = substr($text, $offset, $start - $offset);
+            if (!($last_was_word && $plain === "" && trim($between, " \t\r\n") === "")) {
+                $plain .= $between;
+            }
+            if ($plain !== "") {
+                $result[] = (object)["charset" => "default", "text" => $plain];
+                $plain = "";
+            }
+
+            $charset = $match[1][0];
+            if (($pos = strpos($charset, "*")) !== false) {
+                $charset = substr($charset, 0, $pos);
+            }
+            $result[] = (object)["charset" => $charset, "text" => $decoded];
+            $offset = $start + strlen($match[0][0]);
+            $last_was_word = true;
+        }
+
+        $plain .= substr($text, $offset);
+        if ($plain !== "") {
+            $result[] = (object)["charset" => "default", "text" => $plain];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Decode the text of a single encoded-word
+     * @param string $encoding "B" or "Q"
+     * @param string $text
+     *
+     * @return string|null The decoded bytes or null if the text is not valid for the encoding
+     */
+    private static function decodeEncodedWord(string $encoding, string $text): ?string {
+        if (strtoupper($encoding) === "B") {
+            $decoded = base64_decode($text, true);
+            return $decoded === false ? null : $decoded;
+        }
+
+        return quoted_printable_decode(str_replace("_", " ", $text));
     }
 
     /**

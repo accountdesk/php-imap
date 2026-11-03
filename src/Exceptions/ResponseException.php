@@ -76,7 +76,7 @@ class ResponseException extends Exception {
             foreach($responses as $_response) {
                 if (is_array($_response)) {
                     foreach($_response as $value) {
-                        $message .= "\t".str_replace("\r\n", "\\r\\n", "$value")."\n";
+                        $message .= "\t".str_replace("\r\n", "\\r\\n", self::stringify($value))."\n";
                     }
                 }else{
                     $message .= "\t".str_replace("\r\n", "\\r\\n", "$_response")."\n";
@@ -87,5 +87,18 @@ class ResponseException extends Exception {
         }
 
         return $message;
+    }
+
+    /**
+     * Convert a (nested) response value to a string
+     * @param mixed $value
+     *
+     * @return string
+     */
+    protected static function stringify(mixed $value): string {
+        if (is_array($value)) {
+            return "(" . implode(" ", array_map([self::class, "stringify"], $value)) . ")";
+        }
+        return (string)$value;
     }
 }

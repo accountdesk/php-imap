@@ -1,0 +1,40 @@
+From: signer@example.com
+To: anna@example.com
+Subject: Signed
+Date: Fri, 8 Mar 2024 10:00:00 +0100
+Message-ID: <smime-signed@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/signed; protocol="application/pkcs7-signature"; micalg=sha-256;
+	boundary="----=_Part_SIGNED_1"
+
+This is an S/MIME signed message
+
+------=_Part_SIGNED_1
+Content-Type: multipart/alternative; boundary="----=_Part_ALT_2"
+
+------=_Part_ALT_2
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Signed text
+------=_Part_ALT_2
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+<p>Signed text</p>
+------=_Part_ALT_2--
+
+------=_Part_SIGNED_1
+Content-Type: application/pkcs7-signature; name="smime.p7s"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="smime.p7s"
+Content-Description: S/MIME Cryptographic Signature
+
+AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK+2vcTL0tng5+71/AMKERgfJi00O0JJUFdeZWxzeoGI
+j5adpKuyucDHztXc4+rx+P8GDRQbIikwNz5FTFNaYWhvdn2Ei5KZoKeutbzDytHY3+bt9PsCCRAX
+HiUsMzpBSE9WXWRrcnmAh46VnKOqsbi/xs3U2+Lp8Pf+BQwTGiEoLzY9REtSWWBnbnV8g4qRmJ+m
+rbS7wsnQ197l7PP6AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09rh6O/2/QQLEhkgJy41
+PENKUVhfZm10e4KJkJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmlwd36FjJOaoaivtr3E
+y9LZ4Ofu9fwDChEYHyYt
+
+------=_Part_SIGNED_1--

@@ -53,12 +53,15 @@ class Issue40Test extends FixtureTestCase {
                              'mail'     => 'faked_sender@sender_domain.pl',
                              'full'     => 'faked_sender@sender_domain.pl',
                          ], $message->from->first()->toArray());
+        // the message has two Return-Path headers - both are parsed as address (they used to be joined with
+        // a space, which turned the first address into the display name of the second one)
+        self::assertCount(2, $message->return_path->all());
         self::assertSame([
-                             'personal' => '<real_sender@sender_domain.pl>',
+                             'personal' => '',
                              'mailbox'  => 'real_sender',
                              'host'     => 'sender_domain.pl',
                              'mail'     => 'real_sender@sender_domain.pl',
-                             'full'     => '<real_sender@sender_domain.pl> <real_sender@sender_domain.pl>',
+                             'full'     => 'real_sender@sender_domain.pl',
                          ], (array)$message->return_path->first());
         self::assertSame(true, $message->spoofed->first());
 

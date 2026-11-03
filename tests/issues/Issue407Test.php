@@ -49,7 +49,9 @@ class Issue407Test extends LiveMailboxTestCase {
 
         self::assertIsArray($flags);
         self::assertSame(1, count($flags));
-        self::assertSame("\\Seen", $flags[$message->uid][0]);
+        // \Recent is a session flag the server may report as well (James does, before \Seen)
+        $message_flags = array_values(array_diff((array)$flags[$message->uid], ["\\Recent"]));
+        self::assertSame(["\\Seen"], $message_flags);
 
         $message->delete();
     }

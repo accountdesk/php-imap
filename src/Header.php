@@ -88,7 +88,9 @@ class Header {
      */
     public function __call(string $method, array $arguments) {
         if (strtolower(substr($method, 0, 3)) === 'get') {
-            $name = preg_replace('/(.)(?=[A-Z])/u', '$1_', substr(strtolower($method), 3));
+            // Insert the underscores *before* lowercasing, otherwise the CamelCase
+            // lookahead never matches (e.g. getMessageId -> message_id).
+            $name = strtolower(preg_replace('/(.)(?=[A-Z])/u', '$1_', substr($method, 3)));
 
             if (in_array($name, array_keys($this->attributes))) {
                 return $this->attributes[$name];
@@ -116,12 +118,16 @@ class Header {
      * @return Attribute
      */
     public function get($name): Attribute {
-        $name = str_replace(["-", " "], "_", strtolower($name));
+        $key = str_replace(["-", " "], "_", strtolower($name));
+        if (isset($this->attributes[$key])) {
+            return $this->attributes[$key];
+        }
+        // attributes set under their raw name, e.g. fetch extensions like "X-GM-LABELS"
         if (isset($this->attributes[$name])) {
             return $this->attributes[$name];
         }
 
-        return new Attribute($name);
+        return new Attribute($key);
     }
 
     /**
@@ -131,8 +137,8 @@ class Header {
      * @return bool
      */
     public function has(string $name): bool {
-        $name = str_replace(["-", " "], "_", strtolower($name));
-        return isset($this->attributes[$name]);
+        $key = str_replace(["-", " "], "_", strtolower($name));
+        return isset($this->attributes[$key]) || isset($this->attributes[$name]);
     }
 
     /**
@@ -177,9 +183,21 @@ class Header {
      */
     public function getBoundary(): ?string {
         $regex = $this->options["boundary"] ?? "/boundary=(.*?(?=;)|(.*))/i";
-        $boundary = $this->find($regex);
 
-        if ($boundary === null) {
+        // Only trust the boundary declared inside the Content-Type header (incl.
+        // folded continuation lines). Searching the whole raw header would let a
+        // crafted header such as "X-Evil: boundary=..." hijack the MIME parsing.
+        $search = $this->raw;
+        if (preg_match('/^content-type:(.*(?:\r?\n[ \t].*)*)/im', $this->raw, $ct)) {
+            $search = $ct[1];
+        }
+
+        $boundary = null;
+        if (preg_match($regex, $search, $match)) {
+            $boundary = $match[1] ?? null;
+        }
+
+        if ($boundary === null || $boundary === "") {
             return null;
         }
 
@@ -193,7 +211,7 @@ class Header {
      * @return string
      */
     private function clearBoundaryString(string $str): string {
-        return str_replace(['"', '\r', '\n', "\n", "\r", ";", "\s"], "", $str);
+        return trim(str_replace(['"', '\r', '\n', "\n", "\r", ";", "\s"], "", $str));
     }
 
     /**
@@ -240,7 +258,32 @@ class Header {
     }
 
     /**
+     * Headers which contain address lists. They are always parsed by parseAddressList(), so the result does
+     * not depend on ext-imap (see rfc822_parse_headers()).
+     */
+    private const ADDRESS_HEADERS = ['from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'return_path', 'envelope_from', 'envelope_to', 'delivered_to'];
+
+    /**
+     * Address headers which additionally get a raw "<key>address" value (like imap_rfc822_parse_headers())
+     */
+    private const RAW_ADDRESS_HEADERS = ['from', 'to', 'cc', 'bcc', 'reply_to', 'sender'];
+
+    /**
+     * Headers of which only the first occurrence counts (like imap_rfc822_parse_headers())
+     */
+    private const SINGLE_HEADERS = ['subject', 'date', 'message_id', 'in_reply_to', 'references'];
+
+    /**
      * Parse mail headers from a string
+     *
+     * Works like imap_rfc822_parse_headers(): folded lines are unfolded, CRLF and bare LF line endings are
+     * accepted, address headers become lists of objects (personal, mailbox, host) plus a raw "<key>address"
+     * value (reply_to and sender stay empty without their headers - c-client copies from), and only the first subject / date / message-id /
+     * in-reply-to / references header counts. Every other header is kept as string, or as array if it occurs
+     * more than once. If ext-imap is available (and options.rfc822 is enabled) its values are used for the
+     * non-address headers - they are the same. Address lists are always parsed by the library itself, because
+     * c-client turns invalid lists into placeholder addresses ("Name Only" becomes "Name@UNKNOWN" plus
+     * "UNEXPECTED_DATA_AFTER_ADDRESS@.SYNTAX-ERROR.") and rewrites the raw "<key>address" values.
      * @link https://php.net/manual/en/function.imap-rfc822-parse-headers.php
      * @param $raw_headers
      *
@@ -249,95 +292,57 @@ class Header {
     public function rfc822_parse_headers($raw_headers): object {
         $headers = [];
         $imap_headers = [];
+        $raw_headers = preg_replace("/\r?\n/", "\r\n", (string)$raw_headers);
         if (extension_loaded('imap') && $this->options["rfc822"]) {
             $raw_imap_headers = (array)\imap_rfc822_parse_headers($raw_headers);
             foreach ($raw_imap_headers as $key => $values) {
                 $key = strtolower(str_replace("-", "_", $key));
+                if (in_array($key, self::ADDRESS_HEADERS) || in_array(substr($key, 0, -7), self::RAW_ADDRESS_HEADERS)) {
+                    continue;
+                }
                 $imap_headers[$key] = $values;
             }
         }
-        $lines = explode("\r\n", preg_replace("/\r\n\s/", ' ', $raw_headers));
-        $prev_header = null;
+        // unfold: after this only a continuation line at the very beginning (without a header line before)
+        // starts with whitespace - it is ignored like any other line without a field name
+        $lines = explode("\r\n", preg_replace("/\r\n[ \t]/", ' ', $raw_headers));
         foreach ($lines as $line) {
-            if (str_starts_with($line, "\n")) {
-                $line = substr($line, 1);
-            }
-
-            if (str_starts_with($line, "\t")) {
-                $line = substr($line, 1);
-                $line = trim(rtrim($line));
-                if ($prev_header !== null) {
-                    $headers[$prev_header][] = $line;
-                }
-            } elseif (str_starts_with($line, " ")) {
-                $line = substr($line, 1);
-                $line = trim(rtrim($line));
-                if ($prev_header !== null) {
-                    if (!isset($headers[$prev_header])) {
-                        $headers[$prev_header] = "";
-                    }
-                    if (is_array($headers[$prev_header])) {
-                        $headers[$prev_header][] = $line;
-                    } else {
-                        $headers[$prev_header] .= $line;
-                    }
-                }
-            } else {
-                if (($pos = strpos($line, ":")) > 0) {
-                    $key = trim(rtrim(strtolower(substr($line, 0, $pos))));
-                    $key = strtolower(str_replace("-", "_", $key));
-
-                    $value = trim(rtrim(substr($line, $pos + 1)));
-                    if (isset($headers[$key])) {
-                        $headers[$key][] = $value;
-                    } else {
-                        $headers[$key] = [$value];
-                    }
-                    $prev_header = $key;
-                }
+            if (!str_starts_with($line, "\t") && !str_starts_with($line, " ") && ($pos = strpos($line, ":")) > 0) {
+                $key = strtolower(str_replace("-", "_", trim(substr($line, 0, $pos))));
+                $headers[$key][] = trim(substr($line, $pos + 1));
             }
         }
 
         foreach ($headers as $key => $values) {
+            $key = (string)$key;
+            if (in_array($key, self::ADDRESS_HEADERS)) {
+                $headers[$key] = $this->parseAddressList(implode(", ", $values));
+                if (in_array($key, self::RAW_ADDRESS_HEADERS)) {
+                    $headers[$key . "address"] = implode(", ", array_filter($values, function($value) {
+                        return $value !== "";
+                    }));
+                }
+                continue;
+            }
             if (isset($imap_headers[$key])) {
                 continue;
             }
-            $value = null;
-            switch ((string)$key) {
-                case 'from':
-                case 'to':
-                case 'cc':
-                case 'bcc':
-                case 'reply_to':
-                case 'sender':
-                    $value = $this->decodeAddresses($values);
-                    $headers[$key . "address"] = implode(", ", $values);
-                    break;
-                case 'subject':
-                    $value = implode(" ", $values);
-                    break;
-                default:
-                    if (is_array($values)) {
-                        foreach ($values as $k => $v) {
-                            if ($v == "") {
-                                unset($values[$k]);
-                            }
-                        }
-                        $available_values = count($values);
-                        if ($available_values === 1) {
-                            $value = array_pop($values);
-                        } elseif ($available_values === 2) {
-                            $value = implode(" ", $values);
-                        } elseif ($available_values > 2) {
-                            $value = array_values($values);
-                        } else {
-                            $value = "";
-                        }
-                    }
-                    break;
+            if (in_array($key, self::SINGLE_HEADERS)) {
+                $headers[$key] = $values[0];
+                continue;
             }
-            $headers[$key] = $value;
+            $values = array_values(array_filter($values, function($value) {
+                return $value !== "";
+            }));
+            $headers[$key] = match (count($values)) {
+                0 => "",
+                1 => $values[0],
+                default => $values,
+            };
         }
+
+        // Unlike c-client, reply_to and sender are NOT filled with "from" when the headers are missing:
+        // a reply-to that is not in the message is no information (callers fall back to from themselves).
 
         return (object)array_merge($headers, $imap_headers);
     }
@@ -361,26 +366,34 @@ class Header {
     }
 
     /**
-     * Extract a given part as address array from a given header
-     * @param $values
+     * Parse an address list (RFC 5322 3.4) into objects with the properties personal, mailbox and host
      *
-     * @return array
+     * - display names may be quoted ("Doe, John") and contain quoted-pairs, the quotes are removed
+     * - a comment is used as display name if there is none: "a@b.c (Name)"
+     * - group syntax: "Group: a@b.c, d@e.f;" yields the members; the group name is no address, so an empty
+     *   group like "undisclosed-recipients:;" yields nothing
+     * - ";" is accepted as separator outside of groups (Outlook style lists)
+     * - an empty address "<>" (null sender) is kept with empty mailbox and host
+     * - an address without host ("no_host") is kept as mailbox only
+     * - "Name addr@host" without angle brackets uses the last word as address, an item without any address
+     *   ("Name Only") is dropped
+     * - the source route of "<@route:a@b.c>" is removed
+     * @param string $list
+     *
+     * @return object[]
      */
-    private function decodeAddresses($values): array {
-        $addresses = [];
-
+    private function parseAddressList(string $list): array {
         if (extension_loaded('mailparse') && $this->options["rfc822"]) {
-            foreach ($values as $address) {
-                foreach (\mailparse_rfc822_parse_addresses($address) as $parsed_address) {
-                    if (isset($parsed_address['address'])) {
-                        $mail_address = explode('@', $parsed_address['address']);
-                        if (count($mail_address) == 2) {
-                            $addresses[] = (object)[
-                                "personal" => $parsed_address['display'] ?? '',
-                                "mailbox"  => $mail_address[0],
-                                "host"     => $mail_address[1],
-                            ];
-                        }
+            $addresses = [];
+            foreach (\mailparse_rfc822_parse_addresses($list) as $parsed_address) {
+                if (isset($parsed_address['address'])) {
+                    $mail_address = explode('@', $parsed_address['address']);
+                    if (count($mail_address) == 2) {
+                        $addresses[] = (object)[
+                            "personal" => $parsed_address['display'] ?? '',
+                            "mailbox"  => $mail_address[0],
+                            "host"     => $mail_address[1],
+                        ];
                     }
                 }
             }
@@ -388,45 +401,10 @@ class Header {
             return $addresses;
         }
 
-        foreach ($values as $address) {
-            foreach (preg_split('/, ?(?=(?:[^"]*"[^"]*")*[^"]*$)/', $address) as $split_address) {
-                $split_address = trim(rtrim($split_address));
-
-                if (strpos($split_address, ",") == strlen($split_address) - 1) {
-                    $split_address = substr($split_address, 0, -1);
-                }
-                if (preg_match(
-                    '/^(?:(?P<name>.+)\s)?(?(name)<|<?)(?P<email>[^\s]+?)(?(name)>|>?)$/',
-                    $split_address,
-                    $matches
-                )) {
-                    $name = trim(rtrim($matches["name"]));
-                    $email = trim(rtrim($matches["email"]));
-                    list($mailbox, $host) = array_pad(explode("@", $email), 2, null);
-                    $addresses[] = (object)[
-                        "personal" => $name,
-                        "mailbox"  => $mailbox,
-                        "host"     => $host,
-                    ];
-                }elseif (preg_match(
-                    '/^((?P<name>.+)<)(?P<email>[^<]+?)>$/',
-                    $split_address,
-                    $matches
-                )) {
-                    $name = trim(rtrim($matches["name"]));
-                    if(str_starts_with($name, "\"") && str_ends_with($name, "\"")) {
-                        $name = substr($name, 1, -1);
-                    }elseif(str_starts_with($name, "'") && str_ends_with($name, "'")) {
-                        $name = substr($name, 1, -1);
-                    }
-                    $email = trim(rtrim($matches["email"]));
-                    list($mailbox, $host) = array_pad(explode("@", $email), 2, null);
-                    $addresses[] = (object)[
-                        "personal" => $name,
-                        "mailbox"  => $mailbox,
-                        "host"     => $host,
-                    ];
-                }
+        $addresses = [];
+        foreach ($this->splitAddressList($list) as $item) {
+            if (($address = $this->parseAddressListItem($item)) !== null) {
+                $addresses[] = $address;
             }
         }
 
@@ -434,11 +412,177 @@ class Header {
     }
 
     /**
+     * Split an address list at the top level separators, i.e. outside of quoted strings, comments and angle
+     * brackets. Group names ("Group:") and group terminators (";") are removed.
+     * @param string $list
+     *
+     * @return string[]
+     */
+    private function splitAddressList(string $list): array {
+        $items = [];
+        $current = "";
+        $quoted = false;
+        $comment = 0;
+        $angle = false;
+        $length = strlen($list);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $list[$i];
+            if ($char === "\\" && ($quoted || $comment > 0) && $i + 1 < $length) {
+                $current .= $char . $list[++$i];
+                continue;
+            }
+            if ($quoted) {
+                $quoted = $char !== '"';
+            } elseif ($comment > 0) {
+                if ($char === "(") {
+                    $comment++;
+                } elseif ($char === ")") {
+                    $comment--;
+                }
+            } elseif ($char === '"') {
+                $quoted = true;
+            } elseif ($char === "(") {
+                $comment++;
+            } elseif ($angle) {
+                $angle = $char !== ">";
+            } elseif ($char === "<") {
+                $angle = true;
+            } elseif ($char === "," || $char === ";") {
+                $items[] = $current;
+                $current = "";
+                continue;
+            } elseif ($char === ":") {
+                // a group name - no address
+                $current = "";
+                continue;
+            }
+            $current .= $char;
+        }
+        $items[] = $current;
+
+        return $items;
+    }
+
+    /**
+     * Parse a single item of an address list
+     * @param string $item
+     *
+     * @return object|null
+     */
+    private function parseAddressListItem(string $item): ?object {
+        $phrase = "";
+        $comments = [];
+        $address = null;
+        $length = strlen($item);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $item[$i];
+            if ($char === '"') {
+                $value = "";
+                for ($i++; $i < $length && $item[$i] !== '"'; $i++) {
+                    if ($item[$i] === "\\" && $i + 1 < $length) {
+                        $i++;
+                    }
+                    $value .= $item[$i];
+                }
+                if ($address === null) {
+                    // mark quoted text, its whitespace is kept
+                    $phrase .= "\x00" . $value . "\x00";
+                } else {
+                    $address .= '"' . $value . '"';
+                }
+            } elseif ($char === "(") {
+                $depth = 1;
+                $value = "";
+                for ($i++; $i < $length; $i++) {
+                    if ($item[$i] === "\\" && $i + 1 < $length) {
+                        $value .= $item[++$i];
+                        continue;
+                    }
+                    if ($item[$i] === "(") {
+                        $depth++;
+                    } elseif ($item[$i] === ")" && --$depth === 0) {
+                        break;
+                    }
+                    $value .= $item[$i];
+                }
+                $comments[] = trim($value);
+            } elseif ($char === "<" && $address === null) {
+                $address = "";
+            } elseif ($char === ">" && $address !== null) {
+                // anything behind the angle address is ignored
+                break;
+            } elseif ($address !== null) {
+                $address .= $char;
+            } else {
+                $phrase .= $char;
+            }
+        }
+
+        if ($address === null) {
+            // no angle address: the address is the phrase itself or its last word ("Name addr@host")
+            // (whitespace inside of quoted parts does not separate words)
+            $parts = explode("\x00", $phrase);
+            foreach ($parts as $index => $part) {
+                if ($index % 2 === 1) {
+                    $parts[$index] = str_replace([" ", "\t"], "\x01", $part);
+                }
+            }
+            $words = preg_split('/\s+/', implode("\x00", $parts), -1, PREG_SPLIT_NO_EMPTY);
+            if (count($words) === 0) {
+                return null;
+            }
+            $address = str_replace(["\x00", "\x01"], ['"', " "], array_pop($words));
+            if (count($words) > 0 && !str_contains($address, "@")) {
+                return null;
+            }
+            $phrase = str_replace("\x01", " ", implode(" ", $words));
+        }
+
+        $address = trim($address);
+        if (str_starts_with($address, "@") && ($pos = strrpos($address, ":")) !== false) {
+            $address = substr($address, $pos + 1);
+        }
+        if (($pos = strrpos($address, "@")) !== false) {
+            $mailbox = substr($address, 0, $pos);
+            $host = substr($address, $pos + 1);
+        } else {
+            $mailbox = $address;
+            $host = "";
+        }
+        if (strlen($mailbox) > 1 && str_starts_with($mailbox, '"') && str_ends_with($mailbox, '"')) {
+            $mailbox = substr($mailbox, 1, -1);
+        }
+
+        // collapse whitespace outside of the quoted parts
+        $parts = explode("\x00", $phrase);
+        foreach ($parts as $index => $part) {
+            if ($index % 2 === 0) {
+                $parts[$index] = preg_replace('/\s+/', ' ', $part);
+            }
+        }
+        $personal = trim(implode("", $parts));
+        if ($personal === "" && count($comments) > 0) {
+            $personal = implode(" ", $comments);
+        }
+        if (strlen($personal) > 1 && str_starts_with($personal, "'") && str_ends_with($personal, "'")) {
+            $personal = substr($personal, 1, -1);
+        }
+
+        return (object)[
+            "personal" => $personal,
+            "mailbox"  => trim($mailbox),
+            "host"     => trim($host),
+        ];
+    }
+
+    /**
      * Extract a given part as address array from a given header
      * @param object $header
      */
     private function extractAddresses(object $header): void {
-        foreach (['from', 'to', 'cc', 'bcc', 'reply_to', 'sender', 'return_path', 'envelope_from', 'envelope_to', 'delivered_to'] as $key) {
+        foreach (self::ADDRESS_HEADERS as $key) {
             if (property_exists($header, $key)) {
                 $this->set($key, $this->parseAddresses($header->$key));
             }
@@ -446,101 +590,17 @@ class Header {
     }
 
     /**
-     * Parse Addresses
-     * @param $list
+     * Turn parsed address objects (see parseAddressList()) into Address instances and decode their display names
+     * @param array $list
      *
-     * @return array
+     * @return Address[]
      */
-    private function parseAddresses($list): array {
+    private function parseAddresses(array $list): array {
         $addresses = [];
-
-        if (is_array($list) === false) {
-            if(is_string($list)) {
-                if (preg_match(
-                    '/^(?:(?P<name>.+)\s)?(?(name)<|<?)(?P<email>[^\s]+?)(?(name)>|>?)$/',
-                    $list,
-                    $matches
-                )) {
-                    $name = trim(rtrim($matches["name"]));
-                    $email = trim(rtrim($matches["email"]));
-                    list($mailbox, $host) = array_pad(explode("@", $email), 2, null);
-                    if($mailbox === ">") { // Fix trailing ">" in malformed mailboxes
-                        $mailbox = "";
-                    }
-                    if($name === "" && $mailbox === "" && $host === "") {
-                        return $addresses;
-                    }
-                    $list = [
-                        (object)[
-                            "personal" => $name,
-                            "mailbox"  => $mailbox,
-                            "host"     => $host,
-                        ]
-                    ];
-                }elseif (preg_match(
-                    '/^((?P<name>.+)<)(?P<email>[^<]+?)>$/',
-                    $list,
-                    $matches
-                )) {
-                    $name = trim(rtrim($matches["name"]));
-                    $email = trim(rtrim($matches["email"]));
-                    if(str_starts_with($name, "\"") && str_ends_with($name, "\"")) {
-                        $name = substr($name, 1, -1);
-                    }elseif(str_starts_with($name, "'") && str_ends_with($name, "'")) {
-                        $name = substr($name, 1, -1);
-                    }
-                    list($mailbox, $host) = array_pad(explode("@", $email), 2, null);
-                    if($mailbox === ">") { // Fix trailing ">" in malformed mailboxes
-                        $mailbox = "";
-                    }
-                    if($name === "" && $mailbox === "" && $host === "") {
-                        return $addresses;
-                    }
-                    $list = [
-                        (object)[
-                            "personal" => $name,
-                            "mailbox"  => $mailbox,
-                            "host"     => $host,
-                        ]
-                    ];
-                }else{
-                    return $addresses;
-                }
-            }else{
-                return $addresses;
-            }
-        }
 
         foreach ($list as $item) {
             $address = (object)$item;
-
-            if (!property_exists($address, 'mailbox')) {
-                $address->mailbox = false;
-            }
-            if (!property_exists($address, 'host')) {
-                $address->host = false;
-            }
-            if (!property_exists($address, 'personal')) {
-                $address->personal = false;
-            } else {
-                $personal_slices = explode(" ", $address->personal);
-                $address->personal = "";
-                foreach ($personal_slices as $slice) {
-                    $personalParts = $this->decoder->mimeHeaderDecode($slice);
-
-                    $personal = '';
-                    foreach ($personalParts as $p) {
-                        $personal .= $this->decoder->convertEncoding($p->text, $this->decoder->getEncoding($p));
-                    }
-
-                    if (str_starts_with($personal, "'")) {
-                        $personal = str_replace("'", "", $personal);
-                    }
-                    $personal = $this->decoder->decode($personal);
-                    $address->personal .= $personal . " ";
-                }
-                $address->personal = trim(rtrim($address->personal));
-            }
+            $address->personal = trim((string)$this->decoder->decode((string)$address->personal));
 
             if ($address->host == ".SYNTAX-ERROR.") {
                 $address->host = "";
@@ -569,16 +629,20 @@ class Header {
             } else {
                 $value = (string)$value;
             }
-            // Only parse strings and don't parse any attributes like the user-agent
-            if (!in_array($key, ["user-agent", "subject", "received"])) {
+            // Only parse strings and don't parse any attributes like the user-agent.
+            // Keys are normalized with underscores, so the exclusion list must use them
+            // too (the previous "user-agent" entry never matched anything).
+            if (!in_array($key, ["user_agent", "subject", "received"])) {
                 if (str_contains($value, ";") && str_contains($value, "=")) {
                     $_attributes = $this->read_attribute($value);
                     foreach($_attributes as $_key => $_value) {
                         if($_value === "") {
                             $this->set($key, $_key);
                         }
-                        if (!isset($this->attributes[$_key])) {
-                            $this->set($_key, $_value);
+                        // parameter names are normalized like header names ("smime-type" -> "smime_type")
+                        $_name = str_replace("-", "_", $_key);
+                        if (!isset($this->attributes[$_name])) {
+                            $this->set($_name, $_value);
                         }
                     }
                 }
@@ -601,6 +665,8 @@ class Header {
         $escaped = false;
         foreach (str_split($raw_attribute) as $char) {
             if($escaped) {
+                // a quoted-pair: keep the escaped character
+                $value .= $char;
                 $escaped = false;
                 continue;
             }
@@ -686,6 +752,12 @@ class Header {
         if (property_exists($header, 'date')) {
             $date = $header->date;
 
+            // Cap the length before the regex fallbacks below run against this
+            // attacker-controlled value, to avoid catastrophic backtracking (ReDoS).
+            if (is_string($date) && strlen($date) > 255) {
+                $date = substr($date, 0, 255);
+            }
+
             if (preg_match('/\+0580/', $date)) {
                 $date = str_replace('+0580', '+0530', $date);
             }
@@ -701,6 +773,9 @@ class Header {
                 $parsed_date = Carbon::parse($date);
             } catch (\Exception $e) {
                 switch (true) {
+                    case preg_match('/^(.+)\s+\1$/', $date, $matches) > 0:
+                        $date = $matches[1];
+                        break;
                     case preg_match('/([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\-[0-9]{1,2}\.[0-9]{1,2}.[0-9]{1,2})+$/i', $date) > 0:
                         $date = Carbon::createFromFormat("Y.m.d-H.i.s", $date);
                         break;
@@ -857,9 +932,16 @@ class Header {
         foreach($header_keys as $key) {
             $header = $this->get($key);
             foreach ($header->toArray() as $address) {
-                $potential_senders[] = $address->mailbox . "@" . $address->host;
+                // the null sender ("Return-Path: <>", e.g. bounces) is no other sender
+                if ($address->mail === "") {
+                    continue;
+                }
+                $potential_senders[] = strtolower($address->mail);
             }
         }
+        // Deduplicate: the same address appearing in e.g. From and Return-Path is the
+        // normal case for delivered mail and must not be treated as spoofing.
+        $potential_senders = array_unique($potential_senders);
         if(count($potential_senders) > 1) {
             $this->set("spoofed", true);
             if($this->config->get('security.detect_spoofing_exception', false)) {

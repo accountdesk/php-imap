@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.claude/scripts/phpunit.sh)",
+      "Bash(.claude/scripts/phpunit.sh *)",
+      "Bash(docker compose -f tests/servers/docker-compose.yml logs*)",
+      "Bash(docker compose -f tests/servers/docker-compose.yml ps*)",
+      "Bash(.claude/scripts/imap-servers.sh *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git tag)",
+      "Bash(git tag --list*)",
+      "Bash(git tag --contains*)",
+      "Bash(git tag --points-at*)",
+      "Bash(git fetch*)",
+      "Bash(git stash*)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(git tag -a*)",
+      "Bash(git tag 6*)"
+    ]
+  }
+}

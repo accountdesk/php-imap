@@ -44,7 +44,7 @@ class ReferencesTest extends FixtureTestCase {
         ], $message->getReferences()->all());
 
         self::assertEquals([
-            'This one: is "right" <ding@dong.com>',
+            '"This one: is \\"right\\"" <ding@dong.com>',
             'No-address'
             ], $message->cc->map(function($address){
                 /** @var \Webklex\PHPIMAP\Address $address */

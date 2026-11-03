@@ -218,8 +218,8 @@ class MessageTest extends TestCase {
         self::assertSame("znk551MP3TP3WPp9Kl1gnLErrWEgkJFAtvaKqkTgrk3dKI8dX38YT8BaVxRcOERN", $attachment->content);
         self::assertSame("application/octet-stream", $attachment->content_type);
         self::assertSame("6mfFxiU5Yhv9WYJx.txt", $attachment->name);
-        self::assertSame(2, $attachment->part_number);
-        self::assertSame("text", $attachment->type);
+        self::assertSame(1, $attachment->part_number);
+        self::assertSame("application", $attachment->type);
         self::assertNotEmpty($attachment->id);
         self::assertSame(90, $attachment->size);
         self::assertSame("txt", $attachment->getExtension());
@@ -255,7 +255,7 @@ class MessageTest extends TestCase {
         self::assertSame("application/pdf", $attachment->content_type);
         self::assertSame("Kelvinsong—Font_test_page_bold.pdf", $attachment->name);
         self::assertSame(1, $attachment->part_number);
-        self::assertSame("text", $attachment->type);
+        self::assertSame("application", $attachment->type);
         self::assertNotEmpty($attachment->id);
         self::assertSame(92384, $attachment->size);
         self::assertSame("pdf", $attachment->getExtension());

@@ -1,0 +1,76 @@
+Received: from AM0PR07MB1234.eurprd07.prod.outlook.com (2603:10a6:208:1::11) by
+ AM0PR07MB5678.eurprd07.prod.outlook.com with HTTPS; Tue, 5 Mar 2024 09:12:47 +0000
+From: =?iso-8859-1?Q?M=FCller=2C_Hans?= <hans.mueller@example.de>
+To: "Schmidt, Anna" <anna.schmidt@example.com>, "Weber, Tom"
+	<tom.weber@example.com>
+CC: =?utf-8?B?SsO2cmcgS8O8aG4=?= <joerg@example.org>
+Subject: AW: =?iso-8859-1?Q?Angebot_f=FCr_M=E4rz?=
+Thread-Topic: =?iso-8859-1?Q?Angebot_f=FCr_M=E4rz?=
+Thread-Index: AQHabI4R1x2vNnZ0QkKk0r4b3m5QyLEJb8Mg
+Date: Tue, 5 Mar 2024 09:12:45 +0000
+Message-ID: <AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A@AM0PR07MB1234.eurprd07.prod.outlook.com>
+References: <8f3c2a10-1111-4b5e-9c3e-aaaaaaaaaaaa@example.com>
+In-Reply-To: <8f3c2a10-1111-4b5e-9c3e-aaaaaaaaaaaa@example.com>
+Accept-Language: de-DE, en-US
+Content-Language: de-DE
+X-MS-Has-Attach: yes
+X-MS-TNEF-Correlator:
+x-ms-publictraffictype: Email
+x-ms-exchange-organization-scl: -1
+Content-Type: multipart/mixed;
+	boundary="_004_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_"
+MIME-Version: 1.0
+
+--_004_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_
+Content-Type: multipart/related;
+	boundary="_003_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_";
+	type="multipart/alternative"
+
+--_003_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_
+Content-Type: multipart/alternative;
+	boundary="_000_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_"
+
+--_000_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_
+Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+Hallo Anna,
+
+anbei das Angebot f=FCr M=E4rz. Gr=FC=DFe aus K=F6ln
+
+Hans M=FCller
+
+--_000_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_
+Content-Type: text/html; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Hallo Anna,</p><p>anbei das Angebot f=FCr M=E4rz.</p><img sr=
+c=3D"cid:image001.png@01DA6E8B.12345670"></body></html>
+
+--_000_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_--
+
+--_003_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_
+Content-Type: image/png; name="image001.png"
+Content-Description: image001.png
+Content-Disposition: inline; filename="image001.png"; size=53;
+	creation-date="Tue, 05 Mar 2024 09:12:44 GMT";
+	modification-date="Tue, 05 Mar 2024 09:12:44 GMT"
+Content-ID: <image001.png@01DA6E8B.12345670>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+--_003_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_--
+
+--_004_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_
+Content-Type: application/pdf; name="=?iso-8859-1?Q?Angebot_M=E4rz_2024.pdf?="
+Content-Description: =?iso-8859-1?Q?Angebot_M=E4rz_2024.pdf?=
+Content-Disposition: attachment;
+	filename="=?iso-8859-1?Q?Angebot_M=E4rz_2024.pdf?="; size=54;
+	creation-date="Tue, 05 Mar 2024 09:11:02 GMT";
+	modification-date="Tue, 05 Mar 2024 09:12:44 GMT"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PD4+CmVuZG9iagp0cmFpbGVyCjw8Pj4KJSVFT0YK
+
+--_004_AM0PR07MB1234A1B2C3D4E5F6A7B8C9D0E1F2A_--

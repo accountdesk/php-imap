@@ -1,0 +1,20 @@
+From: =?ISO-8859-1?Q?J=F6rg?= <joerg@example.com>
+To: recipient@example.com
+Subject: Charset variants
+Date: Wed, 03 Jan 2024 08:30:00 +0000
+Message-ID: <charset-variants@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt"
+
+--alt
+Content-Type: text/plain; charset=ISO-8859-1
+Content-Transfer-Encoding: quoted-printable
+
+Gr=FC=DFe aus K=F6ln, =E4=F6=FC=C4=D6=DC=DF and a soft line=
+ break.
+--alt
+Content-Type: text/html; charset="windows-1252"
+Content-Transfer-Encoding: base64
+
+PHA+UHJlaXM6IDUggCCWIIRaaXRhdJM8L3A+
+--alt--

@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!--
+  Apache James IMAP configuration for the php-imap server matrix (tests/servers/docker-compose.yml).
+  Based on the apache/james demo image's conf/imapserver.xml; differences: cleartext LOGIN is allowed on 143
+  (the matrix network is internal), connection limits are off.
+-->
+<imapservers>
+    <imapserver enabled="true">
+        <jmxName>imapserver</jmxName>
+        <bind>0.0.0.0:143</bind>
+        <connectionBacklog>200</connectionBacklog>
+        <tls socketTLS="false" startTLS="true">
+            <privateKey>file://conf/private.key</privateKey>
+            <certificates>file://conf/private.csr</certificates>
+        </tls>
+        <auth>
+            <plainAuthEnabled>true</plainAuthEnabled>
+            <requireSSL>false</requireSSL>
+        </auth>
+        <connectionLimit>0</connectionLimit>
+        <connectionLimitPerIP>0</connectionLimitPerIP>
+        <idleTimeInterval>120</idleTimeInterval>
+        <idleTimeIntervalUnit>SECONDS</idleTimeIntervalUnit>
+        <enableIdle>true</enableIdle>
+    </imapserver>
+    <imapserver enabled="true">
+        <jmxName>imapserver-ssl</jmxName>
+        <bind>0.0.0.0:993</bind>
+        <connectionBacklog>200</connectionBacklog>
+        <tls socketTLS="true" startTLS="false">
+            <privateKey>file://conf/private.key</privateKey>
+            <certificates>file://conf/private.csr</certificates>
+        </tls>
+        <connectionLimit>0</connectionLimit>
+        <connectionLimitPerIP>0</connectionLimitPerIP>
+        <idleTimeInterval>120</idleTimeInterval>
+        <idleTimeIntervalUnit>SECONDS</idleTimeIntervalUnit>
+        <enableIdle>true</enableIdle>
+    </imapserver>
+</imapservers>

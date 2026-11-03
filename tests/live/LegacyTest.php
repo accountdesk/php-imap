@@ -49,17 +49,20 @@ class LegacyTest extends TestCase {
     protected static Client $client;
 
     /**
-     * Create a new LegacyTest instance.
-     * @param string|null $name
-     * @param array $data
-     * @param int|string $dataName
+     * Connect the legacy client. Skipped without a live mailbox or without ext-imap - the check must not
+     * happen in the constructor: markTestSkipped() there aborts the whole test run.
      */
-    public function __construct(?string $name = null, array $data = [], int|string $dataName = '') {
+    protected function setUp(): void {
         if (!getenv("LIVE_MAILBOX") ?? false) {
             $this->markTestSkipped("This test requires a live mailbox. Please set the LIVE_MAILBOX environment variable to run this test.");
         }
+        if (!function_exists("imap_open")) {
+            $this->markTestSkipped("The legacy protocol requires ext-imap.");
+        }
+        if (isset(self::$client)) {
+            return;
+        }
 
-        parent::__construct($name, $data, $dataName);
         $manager = new ClientManager([
             'options' => [
                 "debug" => $_ENV["LIVE_MAILBOX_DEBUG"] ?? false,
@@ -77,7 +80,6 @@ class LegacyTest extends TestCase {
             ],
         ]);
         self::$client = $manager->account('legacy');
-        self::$client->connect();
         self::assertInstanceOf(Client::class, self::$client->connect());
     }
 
