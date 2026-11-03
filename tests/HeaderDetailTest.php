@@ -225,6 +225,24 @@ class HeaderDetailTest extends TestCase {
         self::assertArrayHasKey("creation_date", $header->getAttributes());
     }
 
+    public function testParameterDoesNotReplaceAddressHeader(): void {
+        $header = $this->header("From: a@b.de\r\n".
+            "Received-SPF: pass (mx.example: domain of a@b.de designates 192.0.2.1 as permitted sender) client-ip=192.0.2.1; envelope-from=a@b.de; helo=mail.b.de;");
+
+        self::assertSame([], $header->get("envelope_from")->toArray());
+        self::assertFalse($header->has("spoofed"));
+    }
+
+    public function testEnvelopeFromHeaderStaysAnAddress(): void {
+        $header = $this->header("From: a@b.de\r\nEnvelope-From: <a@b.de>\r\n".
+            "Received-SPF: pass client-ip=192.0.2.1; envelope-from=c@d.de;");
+
+        $envelope_from = $header->get("envelope_from")->toArray();
+        self::assertCount(1, $envelope_from);
+        self::assertSame("a@b.de", $envelope_from[0]->mail);
+        self::assertFalse($header->has("spoofed"));
+    }
+
     public function testUserAgentIsNotParsedAsAttributes(): void {
         $header = $this->header("User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv=1)");
 
