@@ -65,13 +65,15 @@ class HeaderDecoder extends Decoder {
      * @return string
      */
     public function getEncoding(object|string $structure): string {
-        if (property_exists($structure, 'parameters')) {
+        // property_exists() on a string looks the string up as a class name (and runs the autoloader with it) -
+        // with a header or body as $structure that costs time for nothing and could pick up an existing class
+        if (is_object($structure) && property_exists($structure, 'parameters')) {
             foreach ($structure->parameters as $parameter) {
                 if (strtolower($parameter->attribute) == "charset") {
                     return EncodingAliases::get($parameter->value == "default" ? EncodingAliases::detectEncoding($parameter->value) : $parameter->value, $this->fallback_encoding);
                 }
             }
-        } elseif (property_exists($structure, 'charset')) {
+        } elseif (is_object($structure) && property_exists($structure, 'charset')) {
             return EncodingAliases::get($structure->charset == "default" ? EncodingAliases::detectEncoding($structure->charset) : $structure->charset, $this->fallback_encoding);
         } elseif (is_string($structure) === true) {
             $result = mb_detect_encoding($structure);

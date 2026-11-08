@@ -25,6 +25,20 @@ class EncodingAliases {
      *
      * @var array
      */
+    /**
+     * Distinct encodings of $aliases, built once on first use (see getEncodings())
+     *
+     * @var string[]|null
+     */
+    private static ?array $encodings = null;
+
+    /**
+     * Encodings mb_detect_encoding() is asked for in detectEncoding(), built once on first use
+     *
+     * @var string[]|null
+     */
+    private static ?array $detect_encodings = null;
+
     private static array $aliases = [
         /*
         |--------------------------------------------------------------------------
@@ -491,8 +505,11 @@ class EncodingAliases {
      * @return mixed
      */
     public static function convert($str, string $from = "ISO-8859-2", string $to = "UTF-8"): mixed {
-        $from = self::get($from, self::detectEncoding($str));
-        $to = self::get($to, self::detectEncoding($str));
+        // Only guess the encoding of the string if the given name is unknown: detectEncoding() is expensive and
+        // convert() is called for every encoded-word of a header - evaluating it eagerly made a header with
+        // thousands of encoded-words take seconds.
+        $from = self::has($from) ? self::get($from) : self::detectEncoding((string)$str);
+        $to = self::has($to) ? self::get($to) : self::detectEncoding((string)$str);
 
         if ($from === $to) {
             return $str;
@@ -537,17 +554,20 @@ class EncodingAliases {
      * @return string
      */
     public static function detectEncoding(string $string): string {
-        $encoding = mb_detect_encoding($string, array_filter(self::getEncodings(), function($value){
-            return !in_array($value, [
-                'ISO-8859-6-I', 'ISO-8859-6-E', 'ISO-8859-8-I', 'ISO-8859-8-E',
-                'ISO-8859-11', 'ISO-8859-13', 'ISO-8859-14', 'ISO-8859-15', 'ISO-8859-16', 'ISO-IR-111',"ISO-2022-CN",
-                "windows-1250", "windows-1253", "windows-1255", "windows-1256", "windows-1257", "windows-1258",
-                "IBM852", "IBM855", "IBM857", "IBM866", "IBM864", "IBM862", "KOI8-R", "KOI8-U",
-                "TIS-620", "ISO-8859-1", "ISO-8859-2", "ISO-8859-3", "ISO-8859-4",
-                "VISCII", "T.61-8bit", "Big5-HKSCS", "windows-874", "macintosh", "ISO-8859-12", "ISO-8859-7",
-                "IMAP-UTF-7"
-            ]);
-        }), true);
+        if (self::$detect_encodings === null) {
+            self::$detect_encodings = array_values(array_filter(self::getEncodings(), function($value){
+                return !in_array($value, [
+                    'ISO-8859-6-I', 'ISO-8859-6-E', 'ISO-8859-8-I', 'ISO-8859-8-E',
+                    'ISO-8859-11', 'ISO-8859-13', 'ISO-8859-14', 'ISO-8859-15', 'ISO-8859-16', 'ISO-IR-111',"ISO-2022-CN",
+                    "windows-1250", "windows-1253", "windows-1255", "windows-1256", "windows-1257", "windows-1258",
+                    "IBM852", "IBM855", "IBM857", "IBM866", "IBM864", "IBM862", "KOI8-R", "KOI8-U",
+                    "TIS-620", "ISO-8859-1", "ISO-8859-2", "ISO-8859-3", "ISO-8859-4",
+                    "VISCII", "T.61-8bit", "Big5-HKSCS", "windows-874", "macintosh", "ISO-8859-12", "ISO-8859-7",
+                    "IMAP-UTF-7"
+                ]);
+            }));
+        }
+        $encoding = mb_detect_encoding($string, self::$detect_encodings, true);
         if ($encoding === false) {
             $encoding = 'UTF-8';
         }
@@ -560,13 +580,14 @@ class EncodingAliases {
      * @return array
      */
     public static function getEncodings(): array {
-        $encodings = [];
-        foreach (self::$aliases as $encoding) {
-            if (!in_array($encoding, $encodings)) {
-                $encodings[] = $encoding;
+        if (self::$encodings === null) {
+            $encodings = [];
+            foreach (self::$aliases as $encoding) {
+                $encodings[$encoding] = true;
             }
+            self::$encodings = array_keys($encodings);
         }
-        return $encodings;
+        return self::$encodings;
     }
 
     /**
