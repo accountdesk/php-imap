@@ -53,7 +53,7 @@ Lokal ist **kein PHP** installiert. Alles läuft in Docker, im Test-Image `php-i
 .claude/scripts/phpunit.sh --coverage                       # + build/coverage.txt, HTML in build/coverage/
 PHP_IMAP=1 .claude/scripts/phpunit.sh                       # Nebenprüfung MIT ext-imap (Image php-imap-test:8.3-imap)
 ```
-- **Baseline (Stand 2026-10-25): der Gesamtlauf hat KEINEN Fehlschlag** – ohne und mit ext-imap (803 Tests).
+- **Baseline (Stand 2026-11-09): der Gesamtlauf hat KEINEN Fehlschlag** – ohne und mit ext-imap (819 Tests).
   Jeder rote Test ist eine Regression.
 - Coverage-Stand 2026-10-25: **89 % Zeilen** offline (Start 54 %). Ungedeckt sind fast nur ext-imap-/mailparse-Zweige
   und LegacyProtocol.

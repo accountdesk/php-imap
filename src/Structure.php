@@ -96,24 +96,33 @@ class Structure {
 
     /**
      * Find all available headers and return the leftover body segment
+     *
+     * The context is taken by reference and emptied as soon as it is split into header and body: a nested
+     * multipart message would otherwise keep a copy of the remaining message on every level of the recursion,
+     * so the memory grew with nesting depth times message size.
      * @var string $context
      * @var integer $part_number
      *
      * @return Part[]
      * @throws InvalidMessageDateException
      */
-    private function parsePart(string $context, int $part_number = 0, int $depth = 0): array {
+    private function parsePart(string &$context, int $part_number = 0, int $depth = 0): array {
         [$headers, $body] = Part::splitHeaderAndBody($context);
+        $context = "";
 
         $config = $this->header->getConfig();
         $headers = new Header($headers, $config);
         if (($boundary = $headers->getBoundary()) !== null) {
-            $parts = $this->detectParts($boundary, $body, $part_number, $depth + 1);
-
             // we return these parts if there are multiple or if configured to allow a single part here (default)
             // isolated cases a single part here causes an empty body, to workaround this set
             // allow_single_parts to false in your config
-            if (count($parts) > 1 || $config->get("options.allow_single_parts", true)) {
+            if ($config->get("options.allow_single_parts", true)) {
+                return $this->detectParts($boundary, $body, $part_number, $depth + 1);
+            }
+            // the body is still needed if there is only one part: hand over a second reference instead
+            $multipart_body = $body;
+            $parts = $this->detectParts($boundary, $multipart_body, $part_number, $depth + 1);
+            if (count($parts) > 1) {
                 return $parts;
             }
         }
@@ -122,6 +131,10 @@ class Structure {
     }
 
     /**
+     * Split a multipart body and parse its body parts
+     *
+     * The context is taken by reference and emptied once it is split, and every body part is released as soon
+     * as it is parsed (see parsePart()).
      * @param string $boundary
      * @param string $context
      * @param int $part_number
@@ -129,23 +142,28 @@ class Structure {
      * @return array
      * @throws InvalidMessageDateException
      */
-    private function detectParts(string $boundary, string $context, int $part_number = 0, int $depth = 0): array {
+    private function detectParts(string $boundary, string &$context, int $part_number = 0, int $depth = 0): array {
         // Bound the nesting depth of multipart structures to prevent a crafted,
         // deeply nested message from exhausting the stack/memory.
         $max_depth = (int)($this->options["max_mime_depth"] ?? 50);
         if ($depth > $max_depth) {
             return [new Part($context, $this->header->getConfig(), $this->header, $part_number)];
         }
+        $contexts = self::splitMultipart($boundary, $context);
+        $context = "";
+
         $final_parts = [];
-        foreach(self::splitMultipart($boundary, $context) as $ctx) {
-            if (trim($ctx) !== "") {
-                $parts = $this->parsePart($ctx, $part_number, $depth);
+        $count = count($contexts);
+        for ($i = 0; $i < $count; $i++) {
+            if (trim($contexts[$i]) !== "") {
+                $parts = $this->parsePart($contexts[$i], $part_number, $depth);
                 foreach ($parts as $part) {
                     $final_parts[] = $part;
                     $part_number = $part->part_number;
                 }
                 $part_number++;
             }
+            unset($contexts[$i]);
         }
         return $final_parts;
     }
@@ -158,35 +176,115 @@ class Structure {
      * messages as they were stored, e.g. with LF only), the content of the parts is not changed. The preamble
      * and the epilogue after the close delimiter ("--boundary--") are no parts. If the body does not contain
      * the delimiter at all, the whole body is returned as a single part.
+     *
+     * The delimiters are searched with strpos() instead of a regular expression that contains the boundary:
+     * such a pattern fails to compile for a very long boundary ("regular expression is too large"), and the
+     * whole multipart body would end up as a single part.
      * @param string $boundary
      * @param string $context
      *
      * @return string[]
      */
     public static function splitMultipart(string $boundary, string $context): array {
-        $pattern = '/(?:\A|\r?\n)--' . preg_quote($boundary, '/') . '(--)?[ \t]*(?=\r?\n|\z)(?:\r?\n)?/';
-        if (!preg_match_all($pattern, $context, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+        $delimiters = self::findDelimiters("--" . $boundary, $context);
+        if (count($delimiters) === 0) {
             return [$context];
         }
 
         $parts = [];
-        $count = count($matches);
+        $count = count($delimiters);
         for ($i = 0; $i < $count; $i++) {
-            if (isset($matches[$i][1]) && $matches[$i][1][0] === "--") {
+            [, $delimiter_end, $close] = $delimiters[$i];
+            if ($close) {
                 // close delimiter - everything behind it is the epilogue
                 break;
             }
-            $start = $matches[$i][0][1] + strlen($matches[$i][0][0]);
-            $end = isset($matches[$i + 1]) ? $matches[$i + 1][0][1] : strlen($context);
-            $part = substr($context, $start, $end - $start);
-            if (!isset($matches[$i + 1])) {
+            $end = isset($delimiters[$i + 1]) ? $delimiters[$i + 1][0] : strlen($context);
+            $part = substr($context, $delimiter_end, $end - $delimiter_end);
+            if (!isset($delimiters[$i + 1])) {
                 // the close delimiter is missing (truncated message): the trailing line break is no content
-                $part = preg_replace('/\r?\n\z/', '', $part);
+                if (str_ends_with($part, "\r\n")) {
+                    $part = substr($part, 0, -2);
+                } elseif (str_ends_with($part, "\n")) {
+                    $part = substr($part, 0, -1);
+                }
             }
             $parts[] = $part;
         }
 
         return $parts;
+    }
+
+    /**
+     * Find the delimiter lines of a multipart body
+     *
+     * Same matches as the pattern /(?:\A|\r?\n)--boundary(--)?[ \t]*(?=\r?\n|\z)(?:\r?\n)?/ with
+     * preg_match_all(): the line break in front of a delimiter and the one behind it belong to the delimiter,
+     * matches do not overlap.
+     * @param string $delimiter "--" followed by the boundary
+     * @param string $context
+     *
+     * @return array<int, array{0: int, 1: int, 2: bool}> start and end offset of each delimiter, true for the
+     *                                                    close delimiter
+     */
+    private static function findDelimiters(string $delimiter, string $context): array {
+        $delimiters = [];
+        $length = strlen($context);
+        $delimiter_length = strlen($delimiter);
+        $offset = 0;
+        while (($pos = strpos($context, $delimiter, $offset)) !== false) {
+            // the delimiter has to start a line; a line break that belongs to the previous match does not count
+            if ($pos === 0 && $offset === 0) {
+                $start = 0;
+            } elseif ($pos - 1 >= $offset && $context[$pos - 1] === "\n") {
+                $start = $pos - 2 >= $offset && $context[$pos - 2] === "\r" ? $pos - 2 : $pos - 1;
+            } else {
+                $offset = $pos + 1;
+                continue;
+            }
+
+            $after = $pos + $delimiter_length;
+            $close = substr($context, $after, 2) === "--";
+            $end = self::delimiterLineEnd($context, $close ? $after + 2 : $after, $length);
+            if ($end === null && $close) {
+                // "--boundary--x" is no close delimiter, but maybe "--boundary" followed by "--x" neither
+                $close = false;
+                $end = self::delimiterLineEnd($context, $after, $length);
+            }
+            if ($end === null) {
+                $offset = $pos + 1;
+                continue;
+            }
+
+            $delimiters[] = [$start, $end, $close];
+            $offset = $end;
+        }
+
+        return $delimiters;
+    }
+
+    /**
+     * End of a delimiter line: optional whitespace, then a line break (included) or the end of the body
+     * @param string $context
+     * @param int $pos position behind the delimiter
+     * @param int $length length of the context
+     *
+     * @return int|null offset behind the delimiter line or null if the line goes on
+     */
+    private static function delimiterLineEnd(string $context, int $pos, int $length): ?int {
+        while ($pos < $length && ($context[$pos] === " " || $context[$pos] === "\t")) {
+            $pos++;
+        }
+        if ($pos === $length) {
+            return $pos;
+        }
+        if ($context[$pos] === "\n") {
+            return $pos + 1;
+        }
+        if ($context[$pos] === "\r" && $pos + 1 < $length && $context[$pos + 1] === "\n") {
+            return $pos + 2;
+        }
+        return null;
     }
 
     /**
@@ -221,7 +319,8 @@ class Structure {
                 return [new Part($this->raw, $this->header->getConfig(), $this->plainTextHeader(), 0)];
             }
 
-            return $this->detectParts($boundary, $this->raw, 0, 0);
+            $raw = $this->raw;
+            return $this->detectParts($boundary, $raw, 0, 0);
         }
 
         return [new Part($this->raw, $this->header->getConfig(), $this->header)];

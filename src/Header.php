@@ -221,7 +221,8 @@ class Header {
      * @throws SpoofingAttemptDetectedException
      */
     protected function parse(): void {
-        $header = $this->rfc822_parse_headers($this->raw);
+        // address lists stay raw here and become Address instances one by one (see extractAddresses())
+        $header = $this->parseRawHeaders($this->raw, false);
 
         $this->extractAddresses($header);
 
@@ -290,6 +291,17 @@ class Header {
      * @return object
      */
     public function rfc822_parse_headers($raw_headers): object {
+        return $this->parseRawHeaders($raw_headers, true);
+    }
+
+    /**
+     * Parse mail headers from a string, see rfc822_parse_headers()
+     * @param mixed $raw_headers
+     * @param bool $parse_addresses false: address headers stay one string (all occurrences joined with ", ")
+     *
+     * @return object
+     */
+    private function parseRawHeaders(mixed $raw_headers, bool $parse_addresses): object {
         $headers = [];
         $imap_headers = [];
         $raw_headers = preg_replace("/\r?\n/", "\r\n", (string)$raw_headers);
@@ -316,7 +328,7 @@ class Header {
         foreach ($headers as $key => $values) {
             $key = (string)$key;
             if (in_array($key, self::ADDRESS_HEADERS)) {
-                $headers[$key] = $this->parseAddressList(implode(", ", $values));
+                $headers[$key] = $parse_addresses ? $this->parseAddressList(implode(", ", $values)) : implode(", ", $values);
                 if (in_array($key, self::RAW_ADDRESS_HEADERS)) {
                     $headers[$key . "address"] = implode(", ", array_filter($values, function($value) {
                         return $value !== "";
@@ -579,14 +591,49 @@ class Header {
 
     /**
      * Extract a given part as address array from a given header
+     *
+     * The address headers are removed from $header. A raw address list (see parseRawHeaders()) is turned into
+     * Address instances item by item: the intermediate objects of a whole list are never held at the same time,
+     * which made a header with a hundred thousand addresses take several times the memory of the result.
      * @param object $header
      */
     private function extractAddresses(object $header): void {
         foreach (self::ADDRESS_HEADERS as $key) {
             if (property_exists($header, $key)) {
-                $this->set($key, $this->parseAddresses($header->$key));
+                $list = $header->$key;
+                unset($header->$key);
+                if (is_string($list)) {
+                    $this->set($key, $this->parseAddressString($list));
+                } else {
+                    $this->set($key, $this->parseAddresses($list));
+                }
             }
         }
+    }
+
+    /**
+     * Turn a raw address list into Address instances (same result as parseAddresses(parseAddressList($list)))
+     * @param string $list
+     *
+     * @return Address[]
+     */
+    private function parseAddressString(string $list): array {
+        if (extension_loaded('mailparse') && $this->options["rfc822"]) {
+            return $this->parseAddresses($this->parseAddressList($list));
+        }
+
+        $items = $this->splitAddressList($list);
+        unset($list);
+        $addresses = [];
+        $count = count($items);
+        for ($i = 0; $i < $count; $i++) {
+            if (($item = $this->parseAddressListItem($items[$i])) !== null) {
+                $addresses[] = $this->makeAddress($item);
+            }
+            unset($items[$i]);
+        }
+
+        return $addresses;
     }
 
     /**
@@ -599,24 +646,33 @@ class Header {
         $addresses = [];
 
         foreach ($list as $item) {
-            $address = (object)$item;
-            $address->personal = trim((string)$this->decoder->decode((string)$address->personal));
-
-            if ($address->host == ".SYNTAX-ERROR.") {
-                $address->host = "";
-            }elseif ($address->host == "UNKNOWN") {
-                $address->host = "";
-            }
-            if ($address->mailbox == "UNEXPECTED_DATA_AFTER_ADDRESS") {
-                $address->mailbox = "";
-            }elseif ($address->mailbox == "MISSING_MAILBOX_TERMINATOR") {
-                $address->mailbox = "";
-            }
-
-            $addresses[] = new Address($address);
+            $addresses[] = $this->makeAddress((object)$item);
         }
 
         return $addresses;
+    }
+
+    /**
+     * Turn one parsed address object into an Address instance and decode its display name
+     * @param object $address
+     *
+     * @return Address
+     */
+    private function makeAddress(object $address): Address {
+        $address->personal = trim((string)$this->decoder->decode((string)$address->personal));
+
+        if ($address->host == ".SYNTAX-ERROR.") {
+            $address->host = "";
+        }elseif ($address->host == "UNKNOWN") {
+            $address->host = "";
+        }
+        if ($address->mailbox == "UNEXPECTED_DATA_AFTER_ADDRESS") {
+            $address->mailbox = "";
+        }elseif ($address->mailbox == "MISSING_MAILBOX_TERMINATOR") {
+            $address->mailbox = "";
+        }
+
+        return new Address($address);
     }
 
     /**
@@ -668,7 +724,11 @@ class Header {
         $inside_word = false;
         $inside_key = true;
         $escaped = false;
-        foreach (str_split($raw_attribute) as $char) {
+        // walk the string by offset: str_split() made an array of one string per byte (about 50 times the
+        // memory of a long header)
+        $length = strlen($raw_attribute);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $raw_attribute[$i];
             if($escaped) {
                 // a quoted-pair: keep the escaped character
                 $value .= $char;
@@ -767,6 +827,10 @@ class Header {
                 $date = str_replace('+0580', '+0530', $date);
             }
 
+            // NUL bytes make DateTime throw a ValueError (an \Error, not an \Exception) instead of failing to
+            // parse; other control characters are no part of a date either
+            $date = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', ' ', $date);
+
             $date = trim(rtrim($date));
             try {
                 if (str_contains($date, '&nbsp;')) {
@@ -777,63 +841,10 @@ class Header {
                 }
                 $parsed_date = Carbon::parse($date);
             } catch (\Exception $e) {
-                switch (true) {
-                    case preg_match('/^(.+)\s+\1$/', $date, $matches) > 0:
-                        $date = $matches[1];
-                        break;
-                    case preg_match('/([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\-[0-9]{1,2}\.[0-9]{1,2}.[0-9]{1,2})+$/i', $date) > 0:
-                        $date = Carbon::createFromFormat("Y.m.d-H.i.s", $date);
-                        break;
-                    case preg_match('/([0-9]{2} [A-Z]{3} [0-9]{4} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2} [+-][0-9]{1,4} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2} [+-][0-9]{1,4})+$/i', $date) > 0:
-                        $parts = explode(' ', $date);
-                        array_splice($parts, -2);
-                        $date = implode(' ', $parts);
-                        break;
-                    case preg_match('/([A-Z]{2,4}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})+$/i', $date) > 0:
-                        $array = explode(',', $date);
-                        array_shift($array);
-                        $date = Carbon::createFromFormat("d M Y H:i:s O", trim(implode(',', $array)));
-                        break;
-                    case preg_match('/([0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ UT)+$/i', $date) > 0:
-                    case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ ([0-9]{2}|[0-9]{4})\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ UT)+$/i', $date) > 0:
-                        $date .= 'C';
-                        break;
-                    case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}[\,]\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})+$/i', $date) > 0:
-                        $date = str_replace(',', '', $date);
-                        break;
-                    // match case for: Di., 15 Feb. 2022 06:52:44 +0100 (MEZ)/Di., 15 Feb. 2022 06:52:44 +0100 (MEZ) and Mi., 23 Apr. 2025 09:48:37 +0200 (MESZ)
-                    case preg_match('/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \([A-Z]{3,4}\))(\/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \([A-Z]{3,4}\))+)?$/i', $date) > 0:
-                        $dates = explode('/', $date);
-                        $date = array_shift($dates);
-                        $array = explode(',', $date);
-                        array_shift($array);
-                        $date = trim(implode(',', $array));
-                        $array = explode(' ', $date);
-                        array_pop($array);
-                        $date = trim(implode(' ', $array));
-                        $date = Carbon::createFromFormat("d M. Y H:i:s O", $date);
-                        break;
-                    // match case for: fr., 25 nov. 2022 06:27:14 +0100/fr., 25 nov. 2022 06:27:14 +0100
-                    case preg_match('/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})\/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})+$/i', $date) > 0:
-                        $dates = explode('/', $date);
-                        $date = array_shift($dates);
-                        $array = explode(',', $date);
-                        array_shift($array);
-                        $date = trim(implode(',', $array));
-                        $date = Carbon::createFromFormat("d M. Y H:i:s O", $date);
-                        break;
-                    case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ \+[0-9]{2,4}\ \(\+[0-9]{1,2}\))+$/i', $date) > 0:
-                    case preg_match('/([A-Z]{2,3}[\,|\ \,]\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}.*)+$/i', $date) > 0:
-                    case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \(.*)\)+$/i', $date) > 0:
-                    case preg_match('/([A-Z]{2,3}\, \ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \(.*)\)+$/i', $date) > 0:
-                    case preg_match('/([0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{2,4}\ [0-9]{2}\:[0-9]{2}\:[0-9]{2}\ [A-Z]{2}\ \-[0-9]{2}\:[0-9]{2}\ \([A-Z]{2,3}\ \-[0-9]{2}:[0-9]{2}\))+$/i', $date) > 0:
-                        $array = explode('(', $date);
-                        $array = array_reverse($array);
-                        $date = trim(array_pop($array));
-                        break;
-                }
                 try {
-                    $parsed_date = Carbon::parse($date);
+                    // The fallbacks below may throw themselves (Carbon::createFromFormat() on a value that only
+                    // looks like the expected format) - that counts as an unparsable date like any other.
+                    $parsed_date = Carbon::parse($this->repairDate($date));
                 } catch (\Exception $_e) {
                     if (!isset($this->options["fallback_date"])) {
                         throw new InvalidMessageDateException("Invalid message date. ID:" . $this->get("message_id") . " Date:" . $header->date . "/" . $date, 1100, $e);
@@ -845,6 +856,87 @@ class Header {
 
             $this->set("date", $parsed_date);
         }
+    }
+
+    /**
+     * Rewrite a date that Carbon::parse() rejected into a parsable value, if it matches a known broken format
+     * @param string $date
+     *
+     * @return Carbon|string
+     */
+    private function repairDate(string $date): Carbon|string {
+        switch (true) {
+            case preg_match('/^(.+)\s+\1$/', $date, $matches) > 0:
+                $date = $matches[1];
+                break;
+            case preg_match('/([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}\-[0-9]{1,2}\.[0-9]{1,2}.[0-9]{1,2})+$/i', $date) > 0:
+                $date = self::createDateFromFormat("Y.m.d-H.i.s", $date);
+                break;
+            case preg_match('/([0-9]{2} [A-Z]{3} [0-9]{4} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2} [+-][0-9]{1,4} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2} [+-][0-9]{1,4})+$/i', $date) > 0:
+                $parts = explode(' ', $date);
+                array_splice($parts, -2);
+                $date = implode(' ', $parts);
+                break;
+            case preg_match('/([A-Z]{2,4}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})+$/i', $date) > 0:
+                $array = explode(',', $date);
+                array_shift($array);
+                $date = self::createDateFromFormat("d M Y H:i:s O", trim(implode(',', $array)));
+                break;
+            case preg_match('/([0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ UT)+$/i', $date) > 0:
+            case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ ([0-9]{2}|[0-9]{4})\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ UT)+$/i', $date) > 0:
+                $date .= 'C';
+                break;
+            case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}[\,]\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})+$/i', $date) > 0:
+                $date = str_replace(',', '', $date);
+                break;
+            // match case for: Di., 15 Feb. 2022 06:52:44 +0100 (MEZ)/Di., 15 Feb. 2022 06:52:44 +0100 (MEZ) and Mi., 23 Apr. 2025 09:48:37 +0200 (MESZ)
+            case preg_match('/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \([A-Z]{3,4}\))(\/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \([A-Z]{3,4}\))+)?$/i', $date) > 0:
+                $dates = explode('/', $date);
+                $date = array_shift($dates);
+                $array = explode(',', $date);
+                array_shift($array);
+                $date = trim(implode(',', $array));
+                $array = explode(' ', $date);
+                array_pop($array);
+                $date = trim(implode(' ', $array));
+                $date = self::createDateFromFormat("d M. Y H:i:s O", $date);
+                break;
+            // match case for: fr., 25 nov. 2022 06:27:14 +0100/fr., 25 nov. 2022 06:27:14 +0100
+            case preg_match('/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})\/([A-Z]{2,3}\.\,\ [0-9]{1,2}\ [A-Z]{2,3}\.\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4})+$/i', $date) > 0:
+                $dates = explode('/', $date);
+                $date = array_shift($dates);
+                $array = explode(',', $date);
+                array_shift($array);
+                $date = trim(implode(',', $array));
+                $date = self::createDateFromFormat("d M. Y H:i:s O", $date);
+                break;
+            case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ \+[0-9]{2,4}\ \(\+[0-9]{1,2}\))+$/i', $date) > 0:
+            case preg_match('/([A-Z]{2,3}[\,|\ \,]\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}.*)+$/i', $date) > 0:
+            case preg_match('/([A-Z]{2,3}\,\ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \(.*)\)+$/i', $date) > 0:
+            case preg_match('/([A-Z]{2,3}\, \ [0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{4}\ [0-9]{1,2}\:[0-9]{1,2}\:[0-9]{1,2}\ [\-|\+][0-9]{4}\ \(.*)\)+$/i', $date) > 0:
+            case preg_match('/([0-9]{1,2}\ [A-Z]{2,3}\ [0-9]{2,4}\ [0-9]{2}\:[0-9]{2}\:[0-9]{2}\ [A-Z]{2}\ \-[0-9]{2}\:[0-9]{2}\ \([A-Z]{2,3}\ \-[0-9]{2}:[0-9]{2}\))+$/i', $date) > 0:
+                $array = explode('(', $date);
+                $array = array_reverse($array);
+                $date = trim(array_pop($array));
+                break;
+        }
+
+        return $date;
+    }
+
+    /**
+     * Carbon::createFromFormat(), but never null
+     * @param string $format
+     * @param string $date
+     *
+     * @return Carbon
+     */
+    private static function createDateFromFormat(string $format, string $date): Carbon {
+        $parsed = Carbon::createFromFormat($format, $date);
+        if (!$parsed instanceof Carbon) {
+            throw new \InvalidArgumentException("Date does not match the format " . $format);
+        }
+        return $parsed;
     }
 
     /**
