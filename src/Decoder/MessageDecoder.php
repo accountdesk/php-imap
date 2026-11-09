@@ -53,13 +53,15 @@ class MessageDecoder extends Decoder {
      * @return string
      */
     public function getEncoding(object|string $structure): string {
-        if (property_exists($structure, 'parameters')) {
+        // property_exists() on a string looks the string up as a class name (and runs the autoloader with it) -
+        // with a header or body as $structure that costs time for nothing and could pick up an existing class
+        if (is_object($structure) && property_exists($structure, 'parameters')) {
             foreach ($structure->parameters as $parameter) {
                 if (strtolower($parameter->attribute) == "charset") {
                     return EncodingAliases::get($parameter->value, "ISO-8859-2");
                 }
             }
-        } elseif (property_exists($structure, 'charset')) {
+        } elseif (is_object($structure) && property_exists($structure, 'charset')) {
             return EncodingAliases::get($structure->charset, "ISO-8859-2");
         } elseif (is_string($structure) === true) {
             return EncodingAliases::detectEncoding($structure);
