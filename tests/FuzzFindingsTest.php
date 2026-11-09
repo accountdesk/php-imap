@@ -16,6 +16,8 @@ namespace Tests;
 
 use PHPUnit\Framework\TestCase;
 use Webklex\PHPIMAP\Config;
+use Webklex\PHPIMAP\Exceptions\InvalidMessageDateException;
+use Webklex\PHPIMAP\Header;
 use Webklex\PHPIMAP\Message;
 use Webklex\PHPIMAP\Structure;
 
@@ -76,6 +78,41 @@ class FuzzFindingsTest extends TestCase {
 
         $message = Message::fromString($raw, Config::make());
         self::assertSame("inner", $message->getTextBody());
+    }
+
+    /**
+     * 150000 addresses in one header: the intermediate objects of the whole list and the Address instances
+     * were held at the same time (about 115 MB, three times the result). Now they are converted one by one.
+     */
+    public function testHugeAddressListMemory(): void {
+        if (extension_loaded("imap")) {
+            self::markTestSkipped("imap_rfc822_parse_headers() parses the address lists in c-client as well");
+        }
+        $count = 150000;
+        $raw = "From: " . implode(", ", array_fill(0, $count, "a@b.c")) . "\r\nSubject: x\r\n";
+
+        $mb = $this->peakMb(function() use ($raw) {
+            return new Header($raw, Config::make());
+        }, $header);
+
+        $from = $header->get("from")->toArray();
+        self::assertCount($count, $from);
+        self::assertSame("a@b.c", $from[$count - 1]->mail);
+        self::assertLessThan(75, $mb, sprintf("parsing took %.1f MB", $mb));
+    }
+
+    /**
+     * The public rfc822_parse_headers() still returns the parsed address objects
+     */
+    public function testRfc822ParseHeadersKeepsAddressObjects(): void {
+        $header = new Header("Subject: x\r\n", Config::make());
+        $parsed = $header->rfc822_parse_headers("To: \"Doe, John\" <john@example.com>, a@b.c\r\nSubject: y");
+
+        self::assertEquals([
+            (object)["personal" => "Doe, John", "mailbox" => "john", "host" => "example.com"],
+            (object)["personal" => "", "mailbox" => "a", "host" => "b.c"],
+        ], $parsed->to);
+        self::assertSame("\"Doe, John\" <john@example.com>, a@b.c", $parsed->toaddress);
     }
 
     /**
@@ -143,4 +180,50 @@ class FuzzFindingsTest extends TestCase {
         }
     }
 
+    /**
+     * A NUL byte in the date went to DateTime unchecked: ValueError (an \Error) instead of the fallback date
+     */
+    public function testDateWithNulByteUsesTheFallback(): void {
+        $config = Config::make(["options" => ["fallback_date" => "2000-01-01 00:00:00"]]);
+        $header = new Header("Date: Thu, 22 Oct 2026\x0010:15:00 +0200\r\n", $config);
+        // (imap_rfc822_parse_headers() cuts the value at the NUL byte, the time is lost there)
+        $expected = extension_loaded("imap") ? "2026-10-22 00:00:00" : "2026-10-22 10:15:00";
+        self::assertSame($expected, $header->get("date")->first()->format("Y-m-d H:i:s"));
+
+        // fuzzing reproducer: matches a repair pattern, the NUL bytes reached Carbon::createFromFormat()
+        $header = new Header("Date: T\x00u,\x00\x002 Oct 2026 1\x00:\x005:00Thu, 22 Oct 2026 10:15:00 +0200\r\n", $config);
+        if (!extension_loaded("imap")) {
+            // (with ext-imap only "T" is left of the value)
+            self::assertSame("2000-01-01 00:00:00", $header->get("date")->first()->format("Y-m-d H:i:s"));
+        }
+        self::assertInstanceOf(\Carbon\Carbon::class, $header->get("date")->first());
+    }
+
+    /**
+     * A date that matched one of the repair patterns but not its format made Carbon::createFromFormat() throw
+     * outside of the fallback handling
+     */
+    public function testDateRepairThatFailsUsesTheFallback(): void {
+        $config = Config::make(["options" => ["fallback_date" => "2000-01-01 00:00:00"]]);
+        $header = new Header("Date: Thu, 22 Ocp 2026 10:15:00 +0200\r\n", $config);
+        self::assertSame("2000-01-01 00:00:00", $header->get("date")->first()->format("Y-m-d H:i:s"));
+
+        // a repair that works is still used
+        $header = new Header("Date: 2026.10.22-10.15.00\r\n", $config);
+        self::assertSame("2026-10-22 10:15:00", $header->get("date")->first()->format("Y-m-d H:i:s"));
+    }
+
+    /**
+     * Without a fallback date an unparsable date is reported as InvalidMessageDateException
+     */
+    public function testUnparsableDateWithoutFallbackThrowsTheDocumentedException(): void {
+        foreach (["Thu, 22 Ocp 2026 10:15:00 +0200", "garbage\x00date"] as $date) {
+            try {
+                new Header("Date: $date\r\n", Config::make());
+                self::fail("no exception for " . bin2hex($date));
+            } catch (InvalidMessageDateException $e) {
+                self::assertSame(1100, $e->getCode());
+            }
+        }
+    }
 }
